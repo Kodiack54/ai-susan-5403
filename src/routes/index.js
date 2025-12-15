@@ -15,6 +15,8 @@ const chatRoutes = require('./chat');
 const docsRoutes = require('./docs');
 const todosRoutes = require('./todos');
 const structuresRoutes = require('./structures');
+const storageRoutes = require('./storage');
+const conflictsRoutes = require('./conflicts');
 
 const app = express();
 app.use(cors());
@@ -31,5 +33,7 @@ app.use('/api', chatRoutes);
 app.use('/api', docsRoutes);
 app.use('/api', todosRoutes);
 app.use('/api', structuresRoutes);
+app.use('/api', storageRoutes);
+app.use('/api', conflictsRoutes);
 
 module.exports = app;
