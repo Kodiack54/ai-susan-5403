@@ -10,9 +10,12 @@ const config = {
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
 
-  // OpenAI
+  // OpenAI (for background extraction work)
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+
+  // Anthropic (for chat conversations)
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
 
   // Chad connection
   CHAD_URL: process.env.CHAD_URL || 'http://localhost:5401',
