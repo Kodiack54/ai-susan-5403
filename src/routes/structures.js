@@ -214,4 +214,153 @@ router.get('/ports', async (req, res) => {
   }
 });
 
+// ========================================
+// Structure Items - Individual file/folder tracking
+// For Tiffany to navigate and find bugs
+// ========================================
+
+/**
+ * GET /api/structures - Get structure items for a project
+ * (Note: This overrides the old /structures endpoint)
+ */
+router.get('/structures', async (req, res) => {
+  const { project } = req.query;
+
+  try {
+    let query = from('dev_ai_structure_items')
+      .select('*')
+      .order('path', { ascending: true });
+
+    if (project) {
+      query = query.eq('project_path', project);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      // Table might not exist yet, return empty
+      if (error.code === '42P01') {
+        return res.json({ success: true, structures: [] });
+      }
+      throw error;
+    }
+
+    res.json({ success: true, structures: data || [] });
+  } catch (err) {
+    logger.error('Structures fetch failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/structure - Add a structure item (file or folder)
+ */
+router.post('/structure', async (req, res) => {
+  const {
+    project_path, projectPath,
+    path, name, type,
+    status, purpose, notes,
+    parent_path
+  } = req.body;
+
+  const projPath = project_path || projectPath;
+
+  if (!projPath || !path || !name) {
+    return res.status(400).json({ error: 'project_path, path, and name required' });
+  }
+
+  try {
+    const { data, error } = await from('dev_ai_structure_items')
+      .insert({
+        project_path: projPath,
+        path,
+        name,
+        type: type || 'file',
+        status: status || 'active',
+        purpose,
+        notes,
+        parent_path
+      })
+      .select('id')
+      .single();
+
+    if (error) throw error;
+
+    logger.info('Structure item added', { path, type, status });
+    res.json({ success: true, id: data.id });
+  } catch (err) {
+    logger.error('Structure item add failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/structure/:id - Get a specific structure item
+ */
+router.get('/structure/:id', async (req, res) => {
+  try {
+    const { data, error } = await from('dev_ai_structure_items')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+
+    if (error) throw error;
+
+    res.json({ success: true, item: data });
+  } catch (err) {
+    logger.error('Structure item fetch failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * PATCH /api/structure/:id - Update a structure item
+ */
+router.patch('/structure/:id', async (req, res) => {
+  const { path, name, type, status, purpose, notes, parent_path } = req.body;
+
+  try {
+    const updates = { updated_at: new Date().toISOString() };
+
+    if (path !== undefined) updates.path = path;
+    if (name !== undefined) updates.name = name;
+    if (type !== undefined) updates.type = type;
+    if (status !== undefined) updates.status = status;
+    if (purpose !== undefined) updates.purpose = purpose;
+    if (notes !== undefined) updates.notes = notes;
+    if (parent_path !== undefined) updates.parent_path = parent_path;
+
+    const { error } = await from('dev_ai_structure_items')
+      .update(updates)
+      .eq('id', req.params.id);
+
+    if (error) throw error;
+
+    logger.info('Structure item updated', { id: req.params.id, status });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Structure item update failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /api/structure/:id - Delete a structure item
+ */
+router.delete('/structure/:id', async (req, res) => {
+  try {
+    const { error } = await from('dev_ai_structure_items')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) throw error;
+
+    logger.info('Structure item deleted', { id: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    logger.error('Structure item delete failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
