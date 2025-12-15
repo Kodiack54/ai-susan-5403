@@ -1,0 +1,18 @@
+{
+  "name": "code-knowledge",
+  "displayName": "Code Knowledge Cataloger",
+  "description": "Extracts knowledge about code patterns, implementations, and solutions",
+  "enabled": true,
+  "priority": 100,
+  "triggers": [
+    "function",
+    "class",
+    "import",
+    "export",
+    "implements",
+    "pattern"
+  ],
+  "scripts": {
+    "cataloger": "cataloger.js"
+  }
+}

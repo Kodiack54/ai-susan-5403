@@ -1,0 +1,26 @@
+{
+  "name": "nextbid-susan",
+  "version": "1.0.0",
+  "description": "Susan - AI Librarian for NextBid Dev Studio. Catalogs knowledge, tracks docs, todos, and structures.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "pm2:start": "pm2 start pm2.config.js",
+    "pm2:stop": "pm2 stop susan-5403",
+    "pm2:restart": "pm2 restart susan-5403",
+    "pm2:logs": "pm2 logs susan-5403"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "openai": "^4.24.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "author": "NextBid Engineering",
+  "license": "UNLICENSED"
+}
