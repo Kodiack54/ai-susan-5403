@@ -11,6 +11,35 @@ const { Logger } = require('../lib/logger');
 const logger = new Logger('Susan:Catalog');
 
 /**
+ * Resolve targetProject name to project_path
+ * Tries to match project names from dev_projects table
+ */
+async function resolveProjectPath(targetProject, defaultPath) {
+  if (!targetProject) return defaultPath;
+
+  try {
+    // Try to find matching project by name (case-insensitive partial match)
+    const { data: projects } = await from('dev_projects')
+      .select('server_path, name, slug')
+      .or(`name.ilike.%${targetProject}%,slug.ilike.%${targetProject}%`)
+      .limit(1);
+
+    if (projects && projects.length > 0) {
+      logger.info('Resolved targetProject', {
+        targetProject,
+        resolvedPath: projects[0].server_path
+      });
+      return projects[0].server_path;
+    }
+  } catch (err) {
+    logger.warn('Failed to resolve targetProject', { error: err.message, targetProject });
+  }
+
+  // If can't resolve, use the target project as-is (might be a path already)
+  return targetProject.includes('/') ? targetProject : defaultPath;
+}
+
+/**
  * POST /api/catalog - Receive and process extracted knowledge from Chad
  *
  * Body: {
@@ -51,28 +80,34 @@ router.post('/catalog', async (req, res) => {
   };
 
   try {
-    // 1. Process new todos
+    // 1. Process new todos (with cross-project routing)
     if (extraction.todos?.length > 0) {
       for (const todo of extraction.todos) {
         try {
+          // Resolve target project if user mentioned a different one
+          const targetPath = await resolveProjectPath(todo.targetProject, projectPath);
+
           // Check if similar todo already exists
           const { data: existing } = await from('dev_ai_todos')
             .select('id')
-            .eq('project_path', projectPath)
+            .eq('project_path', targetPath)
             .ilike('title', `%${todo.title.slice(0, 50)}%`)
             .limit(1);
 
           if (!existing || existing.length === 0) {
             await from('dev_ai_todos').insert({
-              project_path: projectPath,
+              project_path: targetPath,
               title: todo.title,
               description: todo.description || null,
               priority: todo.priority || 'medium',
               status: 'pending',
               source_session_id: sessionId,
-              category: 'extracted'
+              category: todo.targetProject ? 'cross-project' : 'extracted'
             });
             results.todosAdded++;
+            if (todo.targetProject) {
+              logger.info('Cross-project todo', { from: projectPath, to: targetPath, title: todo.title });
+            }
           }
         } catch (err) {
           results.errors.push(`Todo add failed: ${err.message}`);
