@@ -37,7 +37,10 @@ async function buildStartupContext(projectPath, userId) {
     recentMessages: [],
     relevantKnowledge: [],
     pendingTasks: [],
-    projectInfo: null
+    todos: [],
+    projectInfo: null,
+    ports: [],
+    schemas: []
   };
 
   // 1. Get last session for this project
@@ -102,14 +105,78 @@ async function buildStartupContext(projectPath, userId) {
   const { data: decisions } = await decisionsQuery;
   context.pendingTasks = decisions || [];
 
-  // 4. Build greeting message
+  // 4. Get pending todos for this project
+  let todosQuery = from('dev_ai_todos')
+    .select('id, title, description, priority, category, status, created_at')
+    .in('status', ['pending', 'in_progress'])
+    .order('priority', { ascending: true })
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  if (projectPath) {
+    todosQuery = todosQuery.eq('project_path', projectPath);
+  }
+
+  const { data: todos } = await todosQuery;
+  context.todos = todos || [];
+
+  // 5. Get project structure (ports, services)
+  if (projectPath) {
+    const { data: structure } = await from('dev_ai_structures')
+      .select('project_path, project_name, ports, services, databases')
+      .eq('project_path', projectPath)
+      .single();
+
+    if (structure) {
+      context.projectInfo = {
+        name: structure.project_name,
+        path: structure.project_path,
+        services: structure.services || [],
+        databases: structure.databases || []
+      };
+      context.ports = structure.ports || [];
+    }
+  }
+
+  // 6. Get schema info (tables)
+  let schemaQuery = from('dev_ai_schemas')
+    .select('table_name, prefix, column_count, description')
+    .order('table_name', { ascending: true })
+    .limit(20);
+
+  if (projectPath) {
+    schemaQuery = schemaQuery.eq('project_path', projectPath);
+  }
+
+  const { data: schemas } = await schemaQuery;
+  context.schemas = schemas || [];
+
+  // 7. Get file structure info (key directories/files)
+  if (projectPath) {
+    const { data: fileStructure } = await from('dev_ai_file_structures')
+      .select('directories, key_files, updated_at')
+      .eq('project_path', projectPath)
+      .single();
+
+    if (fileStructure) {
+      context.fileStructure = {
+        directories: fileStructure.directories || [],
+        keyFiles: fileStructure.key_files || [],
+        updatedAt: fileStructure.updated_at
+      };
+    }
+  }
+
+  // 8. Build greeting message
   context.greeting = buildGreeting(context);
 
   logger.info('Context built', {
     projectPath,
     hasLastSession: !!context.lastSession,
     messageCount: context.recentMessages.length,
-    knowledgeCount: context.relevantKnowledge.length
+    knowledgeCount: context.relevantKnowledge.length,
+    todoCount: context.todos.length,
+    portCount: context.ports.length
   });
 
   return context;
@@ -121,37 +188,98 @@ async function buildStartupContext(projectPath, userId) {
 function buildGreeting(context) {
   const parts = [];
 
-  parts.push("Hey Claude, welcome back! Here's where we left off:");
+  parts.push("=== SUSAN'S MEMORY BRIEFING ===");
+  parts.push("Hey Claude, I've gathered everything you need to know:");
 
+  // Project Info
+  if (context.projectInfo) {
+    parts.push(`\n📁 PROJECT: ${context.projectInfo.name}`);
+    parts.push(`   Path: ${context.projectInfo.path}`);
+    if (context.projectInfo.databases?.length > 0) {
+      parts.push(`   Databases: ${context.projectInfo.databases.join(', ')}`);
+    }
+  }
+
+  // Port Assignments
+  if (context.ports?.length > 0) {
+    parts.push("\n🔌 PORTS:");
+    context.ports.forEach(p => {
+      parts.push(`   ${p.port} - ${p.service || p.name}${p.description ? ` (${p.description})` : ''}`);
+    });
+  }
+
+  // Pending Todos
+  if (context.todos?.length > 0) {
+    parts.push("\n📋 TODO LIST:");
+    context.todos.forEach((t, i) => {
+      const priority = t.priority === 'high' ? '🔴' : t.priority === 'medium' ? '🟡' : '🟢';
+      const status = t.status === 'in_progress' ? '⏳' : '⬜';
+      parts.push(`   ${status} ${priority} ${t.title}`);
+      if (t.description) {
+        parts.push(`      └─ ${t.description.slice(0, 80)}${t.description.length > 80 ? '...' : ''}`);
+      }
+    });
+  }
+
+  // Database Tables
+  if (context.schemas?.length > 0) {
+    parts.push("\n🗄️ DATABASE TABLES:");
+    const byPrefix = {};
+    context.schemas.forEach(s => {
+      const prefix = s.prefix || 'other';
+      if (!byPrefix[prefix]) byPrefix[prefix] = [];
+      byPrefix[prefix].push(s.table_name);
+    });
+    Object.entries(byPrefix).forEach(([prefix, tables]) => {
+      parts.push(`   ${prefix}: ${tables.join(', ')}`);
+    });
+  }
+
+  // Last Session
   if (context.lastSession) {
     const ago = timeAgo(new Date(context.lastSession.endedAt));
-    parts.push(`\nLast session was ${ago}.`);
-
+    parts.push(`\n⏰ LAST SESSION: ${ago}`);
     if (context.lastSession.summary) {
-      parts.push(`Summary: ${context.lastSession.summary}`);
+      parts.push(`   Summary: ${context.lastSession.summary}`);
     }
-  } else {
-    parts.push("\nThis looks like a new project - no previous sessions found.");
   }
 
-  if (context.recentMessages.length > 0) {
-    parts.push("\n**Recent conversation:**");
-    context.recentMessages.slice(-5).forEach(m => {
-      const role = m.role === 'user' ? 'User' : 'Claude';
-      const preview = m.content.length > 100 ?
-        m.content.slice(0, 100) + '...' : m.content;
-      parts.push(`- ${role}: ${preview}`);
+  // Recent Conversation
+  if (context.recentMessages?.length > 0) {
+    parts.push("\n💬 RECENT CONVERSATION:");
+    context.recentMessages.slice(-3).forEach(m => {
+      const role = m.role === 'user' ? 'Boss' : 'You';
+      const preview = m.content.length > 100 ? m.content.slice(0, 100) + '...' : m.content;
+      parts.push(`   ${role}: ${preview}`);
     });
   }
 
-  if (context.relevantKnowledge.length > 0) {
-    parts.push("\n**Things I remember about this project:**");
+  // File Structure
+  if (context.fileStructure) {
+    if (context.fileStructure.directories?.length > 0) {
+      parts.push("\n📂 KEY DIRECTORIES:");
+      context.fileStructure.directories.slice(0, 10).forEach(d => {
+        parts.push(`   ${d.path}${d.description ? ` - ${d.description}` : ''}`);
+      });
+    }
+    if (context.fileStructure.keyFiles?.length > 0) {
+      parts.push("\n📄 KEY FILES:");
+      context.fileStructure.keyFiles.slice(0, 10).forEach(f => {
+        parts.push(`   ${f.path}${f.description ? ` - ${f.description}` : ''}`);
+      });
+    }
+  }
+
+  // Knowledge
+  if (context.relevantKnowledge?.length > 0) {
+    parts.push("\n🧠 KEY KNOWLEDGE:");
     context.relevantKnowledge.slice(0, 5).forEach(k => {
-      parts.push(`- [${k.category}] ${k.title}`);
+      parts.push(`   [${k.category}] ${k.title}`);
     });
   }
 
-  parts.push("\nWhat would you like to work on?");
+  parts.push("\n=== END BRIEFING ===");
+  parts.push("Ready to continue where we left off. What's the priority?");
 
   return parts.join('\n');
 }
