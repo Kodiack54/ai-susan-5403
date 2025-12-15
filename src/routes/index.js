@@ -18,6 +18,7 @@ const structuresRoutes = require('./structures');
 const storageRoutes = require('./storage');
 const conflictsRoutes = require('./conflicts');
 const catalogRoutes = require('./catalog');
+const projectDataRoutes = require('./projectData');
 
 const app = express();
 app.use(cors());
@@ -37,5 +38,6 @@ app.use('/api', structuresRoutes);
 app.use('/api', storageRoutes);
 app.use('/api', conflictsRoutes);
 app.use('/api', catalogRoutes);
+app.use('/api', projectDataRoutes);
 
 module.exports = app;
