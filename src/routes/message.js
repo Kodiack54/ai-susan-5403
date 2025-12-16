@@ -102,9 +102,15 @@ async function processForKnowledge(sessionId, projectPath, content) {
 
     if (result.shouldRemember && result.knowledge) {
       const k = result.knowledge;
+
+      // Determine project path based on scope
+      // Global knowledge (ports, team roster, shared patterns) uses null project_path
+      const isGlobal = k.scope === 'global';
+      const effectiveProjectPath = isGlobal ? null : projectPath;
+
       const { error } = await from('dev_ai_knowledge').insert({
         session_id: sessionId,
-        project_path: projectPath,
+        project_path: effectiveProjectPath,
         category: k.category,
         title: k.title,
         summary: k.summary,
@@ -117,15 +123,17 @@ async function processForKnowledge(sessionId, projectPath, content) {
       logger.info('Knowledge extracted', {
         category: k.category,
         title: k.title,
+        scope: isGlobal ? 'global' : 'project',
         sessionId
       });
 
       // Forward to Clair's journal if journal-worthy
-      const forwarded = await clairClient.forwardKnowledgeToJournal(projectPath, k);
+      const forwarded = await clairClient.forwardKnowledgeToJournal(effectiveProjectPath, k);
       if (forwarded) {
         logger.info('Knowledge forwarded to Clair journal', {
           category: k.category,
-          title: k.title
+          title: k.title,
+          scope: isGlobal ? 'global' : 'project'
         });
       }
     }

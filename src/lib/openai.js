@@ -79,15 +79,23 @@ Look for:
 - Database changes
 - Important configurations
 
+SCOPE DETECTION - Determine if knowledge is global or project-specific:
+- "global" = applies to ALL projects (port assignments, AI team roster, shared conventions)
+- "project" = specific to one project (bug fixes, features, project-specific configs)
+
+GLOBAL examples: port assignments, AI worker roster, shared database conventions
+PROJECT examples: bug fixes, feature implementations, project-specific schemas
+
 Return JSON:
 {
   "shouldRemember": boolean,
   "knowledge": {
-    "category": "bug-fix" | "feature" | "architecture" | "database" | "config" | "explanation" | "other",
+    "category": "bug-fix" | "feature" | "architecture" | "database" | "config" | "explanation" | "ports" | "team" | "other",
     "title": "Short descriptive title",
     "summary": "2-3 sentence summary",
     "tags": ["tag1", "tag2"],
-    "importance": 1-10
+    "importance": 1-10,
+    "scope": "global" | "project"
   }
 }
 
