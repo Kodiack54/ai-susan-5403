@@ -750,6 +750,183 @@ app.post('/api/notifications/mark-read', async (req, res) => {
 });
 
 // ============================================
+// TODOS - Manage project todos
+// ============================================
+
+app.get('/api/todos', async (req, res) => {
+  const { project, status, limit = 50 } = req.query;
+
+  try {
+    let query = supabase.from('dev_ai_todos')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(parseInt(limit));
+
+    if (project) {
+      query = query.eq('project_path', project);
+    }
+    if (status && status !== 'all') {
+      query = query.eq('status', status);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.json({ success: true, todos: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/todo', async (req, res) => {
+  const { title, description, priority, status, project_path } = req.body;
+
+  if (!title || !project_path) {
+    return res.status(400).json({ error: 'title and project_path required' });
+  }
+
+  try {
+    const { data, error } = await supabase.from('dev_ai_todos')
+      .insert({
+        title,
+        description,
+        priority: priority || 'medium',
+        status: status || 'pending',
+        project_path
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Susan] Todo created: ${title}`);
+    res.json({ success: true, todo: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.patch('/api/todo/:id', async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  try {
+    const { data, error } = await supabase.from('dev_ai_todos')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, todo: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/todo/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase.from('dev_ai_todos')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================
+// DOCS - Manage project documentation
+// ============================================
+
+app.get('/api/docs', async (req, res) => {
+  const { project, category, limit = 50 } = req.query;
+
+  try {
+    let query = supabase.from('dev_ai_docs')
+      .select('*')
+      .order('updated_at', { ascending: false })
+      .limit(parseInt(limit));
+
+    if (project) {
+      query = query.eq('project_path', project);
+    }
+    if (category) {
+      query = query.eq('category', category);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    res.json({ success: true, docs: data || [] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/doc', async (req, res) => {
+  const { title, content, category, project_path } = req.body;
+
+  if (!title || !content || !project_path) {
+    return res.status(400).json({ error: 'title, content, and project_path required' });
+  }
+
+  try {
+    const { data, error } = await supabase.from('dev_ai_docs')
+      .insert({
+        title,
+        content,
+        category: category || 'general',
+        project_path
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    console.log(`[Susan] Doc created: ${title}`);
+    res.json({ success: true, doc: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.patch('/api/doc/:id', async (req, res) => {
+  const { id } = req.params;
+  const updates = req.body;
+
+  try {
+    const { data, error } = await supabase.from('dev_ai_docs')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    res.json({ success: true, doc: data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/doc/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const { error } = await supabase.from('dev_ai_docs')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ============================================
 // QUERY - Search knowledge base
 // ============================================
 
