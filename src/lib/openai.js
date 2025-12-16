@@ -7,6 +7,7 @@
 const OpenAI = require('openai');
 const config = require('./config');
 const { Logger } = require('./logger');
+const { logOpenAIResponse } = require('./usageLogger');
 
 const logger = new Logger('Susan:OpenAI');
 
@@ -103,6 +104,9 @@ If nothing worth remembering, set shouldRemember: false.`
     })
   );
 
+  // Log usage
+  await logOpenAIResponse(response, 'knowledge_extraction', null, 'Knowledge extraction');
+  
   return JSON.parse(response.choices[0].message.content);
 }
 
@@ -130,6 +134,9 @@ async function summarizeSession(conversation) {
     })
   );
 
+  // Log usage
+  await logOpenAIResponse(response, 'session_summary', null, 'Session summary');
+  
   return response.choices[0].message.content;
 }
 
