@@ -751,4 +751,70 @@ router.post('/summarize', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/migrate-bugs - Migrate bug-fix knowledge items to bugs table
+ * One-time migration to clean up incorrectly categorized items
+ */
+router.post('/migrate-bugs', async (req, res) => {
+  try {
+    // Find all knowledge items with bug-related categories
+    const { data: bugKnowledge, error } = await from('dev_ai_knowledge')
+      .select('id, project_path, title, summary, session_id, created_at')
+      .in('category', ['bug', 'bug-fix', 'error']);
+
+    if (error) throw error;
+
+    if (!bugKnowledge || bugKnowledge.length === 0) {
+      return res.json({ success: true, message: 'No bug knowledge items to migrate', migrated: 0 });
+    }
+
+    let migrated = 0;
+    let deleted = 0;
+    const errors = [];
+
+    for (const item of bugKnowledge) {
+      try {
+        // Check if similar bug already exists
+        const { data: existing } = await from('dev_ai_bugs')
+          .select('id')
+          .ilike('title', `%${item.title.slice(0, 30)}%`)
+          .limit(1);
+
+        if (!existing || existing.length === 0) {
+          // Insert as bug
+          await from('dev_ai_bugs').insert({
+            project_path: item.project_path,
+            title: item.title,
+            description: item.summary,
+            severity: 'medium',
+            status: item.title.toLowerCase().includes('fix') ? 'fixed' : 'open',
+            reported_by: 'migrated-from-knowledge',
+            created_at: item.created_at
+          });
+          migrated++;
+        }
+
+        // Delete from knowledge regardless
+        await from('dev_ai_knowledge').delete().eq('id', item.id);
+        deleted++;
+      } catch (err) {
+        errors.push(`Failed to migrate ${item.id}: ${err.message}`);
+      }
+    }
+
+    logger.info('Bug migration complete', { found: bugKnowledge.length, migrated, deleted, errors: errors.length });
+
+    res.json({
+      success: true,
+      found: bugKnowledge.length,
+      migrated,
+      deleted,
+      errors
+    });
+  } catch (err) {
+    logger.error('Bug migration failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
