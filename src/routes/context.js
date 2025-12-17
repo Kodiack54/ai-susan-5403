@@ -1,6 +1,6 @@
 /**
  * Susan Context Routes
- * Provides startup context to Claude
+ * Provides startup context to Claude - includes Clair's documentation
  */
 
 const express = require('express');
@@ -10,6 +10,36 @@ const { Logger } = require('../lib/logger');
 const config = require('../lib/config');
 
 const logger = new Logger('Susan:Context');
+const CLAIR_URL = 'http://localhost:5406';
+const RYAN_URL = 'http://localhost:5402';
+
+/**
+ * Fetch data from Clair's API
+ */
+async function fetchFromClair(endpoint) {
+  try {
+    const response = await fetch(`${CLAIR_URL}${endpoint}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    logger.warn(`Clair fetch failed: ${endpoint}`, { error: err.message });
+    return null;
+  }
+}
+
+/**
+ * Fetch data from Ryan's API
+ */
+async function fetchFromRyan(endpoint) {
+  try {
+    const response = await fetch(`${RYAN_URL}${endpoint}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (err) {
+    logger.warn(`Ryan fetch failed: ${endpoint}`, { error: err.message });
+    return null;
+  }
+}
 
 /**
  * GET /api/context - Claude's startup context
@@ -40,7 +70,14 @@ async function buildStartupContext(projectPath, userId) {
     todos: [],
     projectInfo: null,
     ports: [],
-    schemas: []
+    schemas: [],
+    // NEW: Clair's data
+    clairSummary: null,
+    clairDecisions: [],
+    clairLessons: [],
+    clairBugs: [],
+    // NEW: Ryan's project management
+    ryanBriefing: null
   };
 
   // 1. Get last session for this project
@@ -69,7 +106,6 @@ async function buildStartupContext(projectPath, userId) {
       summary: session.summary
     };
 
-    // Get messages from last session
     const { data: messages } = await from('dev_ai_messages')
       .select('role, content, created_at')
       .eq('session_id', session.id)
@@ -79,7 +115,7 @@ async function buildStartupContext(projectPath, userId) {
     context.recentMessages = (messages || []).reverse();
   }
 
-  // 2. Get relevant knowledge for this project
+  // 2. Get relevant knowledge
   let knowledgeQuery = from('dev_ai_knowledge')
     .select('id, category, title, summary, tags, importance')
     .order('importance', { ascending: false })
@@ -92,7 +128,7 @@ async function buildStartupContext(projectPath, userId) {
   const { data: knowledge } = await knowledgeQuery;
   context.relevantKnowledge = knowledge || [];
 
-  // 3. Get any pending decisions or notes
+  // 3. Get pending decisions
   let decisionsQuery = from('dev_ai_decisions')
     .select('title, decision, rationale, created_at')
     .order('created_at', { ascending: false })
@@ -105,7 +141,7 @@ async function buildStartupContext(projectPath, userId) {
   const { data: decisions } = await decisionsQuery;
   context.pendingTasks = decisions || [];
 
-  // 4. Get pending todos for this project
+  // 4. Get pending todos
   let todosQuery = from('dev_ai_todos')
     .select('id, title, description, priority, category, status, created_at')
     .in('status', ['pending', 'in_progress'])
@@ -138,7 +174,7 @@ async function buildStartupContext(projectPath, userId) {
     }
   }
 
-  // 6. Get schema info (tables)
+  // 6. Get schema info
   let schemaQuery = from('dev_ai_schemas')
     .select('table_name, prefix, column_count, description')
     .order('table_name', { ascending: true })
@@ -151,7 +187,7 @@ async function buildStartupContext(projectPath, userId) {
   const { data: schemas } = await schemaQuery;
   context.schemas = schemas || [];
 
-  // 7. Get file structure info (key directories/files)
+  // 7. Get file structure
   if (projectPath) {
     const { data: fileStructure } = await from('dev_ai_file_structures')
       .select('directories, key_files, updated_at')
@@ -167,7 +203,65 @@ async function buildStartupContext(projectPath, userId) {
     }
   }
 
-  // 8. Build greeting message
+  // 8. NEW: Get Clair's data
+  if (projectPath) {
+    const encodedPath = encodeURIComponent(projectPath);
+    
+    // Get journal entries (decisions, lessons, latest work_log)
+    const journalData = await fetchFromClair(`/api/journal/${encodedPath}?limit=20`);
+    if (journalData?.success) {
+      const entries = journalData.entries || [];
+      
+      // Latest daily summary (from clair-daily-summary)
+      const summaries = entries.filter(e => e.created_by === 'clair-daily-summary' && e.entry_type === 'work_log');
+      if (summaries.length > 0) {
+        context.clairSummary = {
+          title: summaries[0].title,
+          content: summaries[0].content?.slice(0, 500),
+          date: summaries[0].created_at
+        };
+      }
+      
+      // Recent decisions (not archived)
+      context.clairDecisions = entries
+        .filter(e => e.entry_type === 'decision' && !e.is_archived)
+        .slice(0, 5)
+        .map(e => ({ title: e.title, content: e.content, date: e.created_at }));
+      
+      // Recent lessons
+      context.clairLessons = entries
+        .filter(e => e.entry_type === 'lesson' && !e.is_archived)
+        .slice(0, 3)
+        .map(e => ({ title: e.title, content: e.content, date: e.created_at }));
+    }
+    
+    // Get active bugs
+    const bugsData = await fetchFromClair(`/api/bugs/${encodedPath}?status=open`);
+    if (bugsData?.success) {
+      context.clairBugs = (bugsData.bugs || []).slice(0, 5).map(b => ({
+        title: b.title,
+        severity: b.severity,
+        description: b.description?.slice(0, 100)
+      }));
+    }
+  }
+
+  // 9. NEW: Get Ryan's project briefing
+  const ryanData = await fetchFromRyan(`/api/briefing`);
+  if (ryanData?.success && ryanData.data) {
+    const rd = ryanData.data;
+    context.ryanBriefing = {
+      currentFocus: rd.current_focus,
+      recommendation: rd.recommendation,
+      inProgress: rd.in_progress?.slice(0, 3),
+      blocked: rd.blocked?.slice(0, 3),
+      recentlyCompleted: rd.recently_completed?.slice(0, 3),
+      tradelines: rd.tradelines,
+      summary: rd.summary
+    };
+  }
+
+  // 9. Build greeting message
   context.greeting = buildGreeting(context);
 
   logger.info('Context built', {
@@ -176,7 +270,8 @@ async function buildStartupContext(projectPath, userId) {
     messageCount: context.recentMessages.length,
     knowledgeCount: context.relevantKnowledge.length,
     todoCount: context.todos.length,
-    portCount: context.ports.length
+    clairDecisions: context.clairDecisions.length,
+    clairBugs: context.clairBugs.length
   });
 
   return context;
@@ -189,49 +284,82 @@ function buildGreeting(context) {
   const parts = [];
 
   parts.push("=== SUSAN'S MEMORY BRIEFING ===");
-  parts.push("Hey Claude, I've gathered everything you need to know:");
+  parts.push("Hey Claude, here's everything you need to know:");
 
-  // Project Info
-  if (context.projectInfo) {
-    parts.push(`\n📁 PROJECT: ${context.projectInfo.name}`);
-    parts.push(`   Path: ${context.projectInfo.path}`);
-    if (context.projectInfo.databases?.length > 0) {
-      parts.push(`   Databases: ${context.projectInfo.databases.join(', ')}`);
+  // RYAN'S PROJECT BRIEFING (strategic priorities)
+  if (context.ryanBriefing) {
+    const rb = context.ryanBriefing;
+    parts.push(`\n🎯 PROJECT PRIORITIES (from Ryan):`);
+    if (rb.currentFocus) {
+      parts.push(`   CURRENT FOCUS: ${rb.currentFocus[0]?.project?.name} - ${rb.currentFocus[0]?.phase?.name}`);
+      if (rb.currentFocus[0]?.rationale) parts.push(`   └─ ${rb.currentFocus[0]?.rationale}`);
     }
+    if (rb.recommendation) {
+      parts.push(`   RECOMMENDED NEXT: ${rb.recommendation.project} - ${rb.recommendation.phase}`);
+      if (rb.recommendation.reasons) parts.push(`   └─ ${rb.recommendation.reasons.join(", ")}`);
+    }
+    if (rb.inProgress?.length > 0) {
+      parts.push(`   IN PROGRESS:`);
+      rb.inProgress.forEach(p => parts.push(`      ⏳ ${p.project_name} - ${p.name}`));
+    }
+    if (rb.blocked?.length > 0) {
+      parts.push(`   ⚠️ BLOCKED:`);
+      rb.blocked.forEach(p => parts.push(`      🚫 ${p.project_name} - ${p.name} (waiting on: ${p.blocking_project} - ${p.blocking_phase})`));
+    }
+    if (rb.tradelines?.live?.length > 0) {
+      parts.push(`   📊 TRADELINES: ${rb.tradelines.live.length} live, ${rb.tradelines.testing?.length || 0} testing`);
+    }
+  }
+
+  // CLAIR'S DAILY SUMMARY (most important - what happened yesterday)
+  if (context.clairSummary) {
+    parts.push(`\n📋 YESTERDAY'S WORK (from Clair):`);
+    parts.push(`   ${context.clairSummary.title}`);
+    parts.push(`   ${context.clairSummary.content}...`);
+  }
+
+  // ACTIVE BUGS (blockers first)
+  if (context.clairBugs?.length > 0) {
+    parts.push("\n🐛 ACTIVE BUGS:");
+    context.clairBugs.forEach(b => {
+      const sev = b.severity === 'critical' ? '🔴' : b.severity === 'high' ? '🟠' : '🟡';
+      parts.push(`   ${sev} ${b.title}`);
+      if (b.description) parts.push(`      └─ ${b.description}`);
+    });
+  }
+
+  // RECENT DECISIONS (so Claude doesn't re-ask)
+  if (context.clairDecisions?.length > 0) {
+    parts.push("\n🎯 RECENT DECISIONS:");
+    context.clairDecisions.forEach(d => {
+      parts.push(`   • ${d.title}`);
+      if (d.content) parts.push(`     └─ ${d.content.slice(0, 100)}${d.content.length > 100 ? '...' : ''}`);
+    });
+  }
+
+  // LESSONS LEARNED
+  if (context.clairLessons?.length > 0) {
+    parts.push("\n📚 LESSONS LEARNED:");
+    context.clairLessons.forEach(l => {
+      parts.push(`   • ${l.title}: ${l.content?.slice(0, 80) || ''}...`);
+    });
+  }
+
+  // Pending Todos
+  if (context.todos?.length > 0) {
+    parts.push("\n✅ TODO LIST:");
+    context.todos.forEach(t => {
+      const priority = t.priority === 'high' ? '🔴' : t.priority === 'medium' ? '🟡' : '🟢';
+      const status = t.status === 'in_progress' ? '⏳' : '⬜';
+      parts.push(`   ${status} ${priority} ${t.title}`);
+    });
   }
 
   // Port Assignments
   if (context.ports?.length > 0) {
     parts.push("\n🔌 PORTS:");
     context.ports.forEach(p => {
-      parts.push(`   ${p.port} - ${p.service || p.name}${p.description ? ` (${p.description})` : ''}`);
-    });
-  }
-
-  // Pending Todos
-  if (context.todos?.length > 0) {
-    parts.push("\n📋 TODO LIST:");
-    context.todos.forEach((t, i) => {
-      const priority = t.priority === 'high' ? '🔴' : t.priority === 'medium' ? '🟡' : '🟢';
-      const status = t.status === 'in_progress' ? '⏳' : '⬜';
-      parts.push(`   ${status} ${priority} ${t.title}`);
-      if (t.description) {
-        parts.push(`      └─ ${t.description.slice(0, 80)}${t.description.length > 80 ? '...' : ''}`);
-      }
-    });
-  }
-
-  // Database Tables
-  if (context.schemas?.length > 0) {
-    parts.push("\n🗄️ DATABASE TABLES:");
-    const byPrefix = {};
-    context.schemas.forEach(s => {
-      const prefix = s.prefix || 'other';
-      if (!byPrefix[prefix]) byPrefix[prefix] = [];
-      byPrefix[prefix].push(s.table_name);
-    });
-    Object.entries(byPrefix).forEach(([prefix, tables]) => {
-      parts.push(`   ${prefix}: ${tables.join(', ')}`);
+      parts.push(`   ${p.port} - ${p.service || p.name}`);
     });
   }
 
@@ -240,33 +368,7 @@ function buildGreeting(context) {
     const ago = timeAgo(new Date(context.lastSession.endedAt));
     parts.push(`\n⏰ LAST SESSION: ${ago}`);
     if (context.lastSession.summary) {
-      parts.push(`   Summary: ${context.lastSession.summary}`);
-    }
-  }
-
-  // Recent Conversation
-  if (context.recentMessages?.length > 0) {
-    parts.push("\n💬 RECENT CONVERSATION:");
-    context.recentMessages.slice(-3).forEach(m => {
-      const role = m.role === 'user' ? 'Boss' : 'You';
-      const preview = m.content.length > 100 ? m.content.slice(0, 100) + '...' : m.content;
-      parts.push(`   ${role}: ${preview}`);
-    });
-  }
-
-  // File Structure
-  if (context.fileStructure) {
-    if (context.fileStructure.directories?.length > 0) {
-      parts.push("\n📂 KEY DIRECTORIES:");
-      context.fileStructure.directories.slice(0, 10).forEach(d => {
-        parts.push(`   ${d.path}${d.description ? ` - ${d.description}` : ''}`);
-      });
-    }
-    if (context.fileStructure.keyFiles?.length > 0) {
-      parts.push("\n📄 KEY FILES:");
-      context.fileStructure.keyFiles.slice(0, 10).forEach(f => {
-        parts.push(`   ${f.path}${f.description ? ` - ${f.description}` : ''}`);
-      });
+      parts.push(`   ${context.lastSession.summary.slice(0, 200)}...`);
     }
   }
 
@@ -284,9 +386,6 @@ function buildGreeting(context) {
   return parts.join('\n');
 }
 
-/**
- * Human-readable time ago
- */
 function timeAgo(date) {
   const seconds = Math.floor((new Date() - date) / 1000);
   const intervals = [
