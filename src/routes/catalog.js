@@ -172,7 +172,6 @@ router.post('/catalog', async (req, res) => {
     projectInfo = {
       project_id: routingInfo.project_id,
       client_id: routingInfo.client_id,
-      platform_id: routingInfo.platform_id,
       project_name: routingInfo.project_name || 'From Chad routing',
       project_path: projectPath,
       matched_via: 'chad_context_detection'
@@ -255,7 +254,6 @@ router.post('/catalog', async (req, res) => {
               discovered_in: sessionId,
               category: todo.targetProject ? 'cross-project' : 'extracted',
               client_id: projectInfo?.client_id || null,
-              platform_id: projectInfo?.platform_id || null,
               project_id: projectInfo?.project_id || null
             });
             results.todosAdded++;

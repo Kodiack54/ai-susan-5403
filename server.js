@@ -1219,3 +1219,29 @@ app.listen(PORT, () => {
 });
 
 // Periodic processor removed - relying on Chad -> Susan catalog flow
+
+// Queue stats endpoint - Chad's pending extractions
+app.get('/api/queue-stats', async (req, res) => {
+  try {
+    const { from } = require('./src/lib/db');
+    const { data: pending, error } = await from('dev_ai_smart_extractions')
+      .select('id, extraction_type, created_at')
+      .eq('status', 'pending');
+
+    if (error) throw error;
+
+    const byType = {};
+    (pending || []).forEach(item => {
+      const type = item.extraction_type || 'unknown';
+      byType[type] = (byType[type] || 0) + 1;
+    });
+
+    res.json({
+      success: true,
+      pending: { total: pending?.length || 0, byType },
+      oldestPending: pending?.[0]?.created_at || null
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});

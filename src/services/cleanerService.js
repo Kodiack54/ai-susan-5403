@@ -210,7 +210,7 @@ async function cleanActivityData() {
 
     const { data, error } = await from('dev_ai_activity')
       .delete()
-      .lt('updated_at', cutoff)
+      .lt('created_at', cutoff)
       .select('id');
 
     if (error) throw error;

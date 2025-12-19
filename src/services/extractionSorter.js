@@ -19,7 +19,6 @@ async function getRoutingFromPath(projectPath) {
         .eq('id', pathInfo[0].project_id)
         .single();
       if (proj) {
-        return { client_id: proj.client_id, platform_id: proj.platform_id, project_id: proj.id };
       }
     }
   } catch (e) {}
@@ -29,7 +28,7 @@ async function getRoutingFromPath(projectPath) {
 
 const logger = new Logger('Sorter');
 const projectDetector = require('./projectDetector');
-const { stripAnsi } = require('../../shared/stripAnsi');
+const stripAnsi = require('../../shared/stripAnsi');
 
 const CATEGORY_TO_TABLE = {
   todo: 'dev_ai_todos',
@@ -179,7 +178,6 @@ async function insertTodo(extraction, projectPath) {
         .eq('id', pathInfo[0].project_id)
         .single();
       if (proj) {
-        routingInfo = { client_id: proj.client_id, platform_id: proj.platform_id, project_id: proj.id };
       }
     }
   }
@@ -192,7 +190,6 @@ async function insertTodo(extraction, projectPath) {
     status: 'pending',
     source_session_id: session_id,
     client_id: routingInfo.client_id || null,
-    platform_id: routingInfo.platform_id || null,
     project_id: routingInfo.project_id || null
   });
 }
@@ -210,7 +207,6 @@ async function insertBug(extraction, projectPath) {
     status: 'open',
     source_session_id: session_id,
     client_id: routing.client_id || null,
-    platform_id: routing.platform_id || null,
     project_id: routing.project_id || null
   });
 }
@@ -227,7 +223,6 @@ async function insertKnowledge(extraction, projectPath) {
     category: category || 'general',
     source_session_id: session_id,
     client_id: routing.client_id || null,
-    platform_id: routing.platform_id || null,
     project_id: routing.project_id || null
   });
 }
@@ -244,7 +239,6 @@ async function insertDecision(extraction, projectPath) {
     status: 'decided',
     source_session_id: session_id,
     client_id: routing.client_id || null,
-    platform_id: routing.platform_id || null,
     project_id: routing.project_id || null
   });
 }
@@ -260,7 +254,6 @@ async function insertLesson(extraction, projectPath) {
     content: content,
     source_session_id: session_id,
     client_id: routing.client_id || null,
-    platform_id: routing.platform_id || null,
     project_id: routing.project_id || null
   });
 }

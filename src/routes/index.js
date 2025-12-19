@@ -58,5 +58,6 @@ app.use('/api/bucket', bucketRoutes);
 app.use('/api/migrate', migrateRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/sessions', sessionsRoutes);
+app.use('/api/quick-parse', quickParseRoutes);
 
 module.exports = app;

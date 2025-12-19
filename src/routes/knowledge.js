@@ -239,3 +239,34 @@ router.get('/category-stats', async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+// GET /api/knowledge/queue-stats - Show pending extractions from Chad
+router.get('/queue-stats', async (req, res) => {
+  try {
+    // Get pending extractions count
+    const { data: pending, error: pendingErr } = await from('dev_ai_smart_extractions')
+      .select('id, extraction_type, created_at')
+      .eq('status', 'pending');
+
+    if (pendingErr) throw pendingErr;
+
+    // Group by type
+    const byType = {};
+    (pending || []).forEach(item => {
+      const type = item.extraction_type || 'unknown';
+      byType[type] = (byType[type] || 0) + 1;
+    });
+
+    res.json({
+      success: true,
+      pending: {
+        total: pending?.length || 0,
+        byType
+      },
+      oldestPending: pending?.[0]?.created_at || null
+    });
+  } catch (error) {
+    console.error('[Knowledge] Queue stats error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
