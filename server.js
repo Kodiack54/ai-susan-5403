@@ -14,7 +14,8 @@
 
 require('dotenv').config();
 const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
+// Using local PostgreSQL instead of Supabase
+const supabase = require('../shared/db');
 const OpenAI = require('openai');
 const cors = require('cors');
 
@@ -22,13 +23,14 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
+// Import modular routes
+const catalogRoutes = require('./src/routes/catalog');
+const teamChatRoutes = require('./src/routes/teamChat');
+app.use('/api', catalogRoutes);
+app.use('/api/team-chat', teamChatRoutes);
+
 const PORT = process.env.PORT || 5403;
 
-// Supabase connection
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
 
 // OpenAI for knowledge extraction
 const openai = new OpenAI({
@@ -645,7 +647,7 @@ app.get('/api/conflicts', async (req, res) => {
       .order('created_at', { ascending: false });
 
     if (project_path) {
-      query = query.eq('project_path', project_path);
+      query = query.ilike('project_path', `%${project_path}%`);
     }
     if (status !== 'all') {
       query = query.eq('status', status);
@@ -763,7 +765,7 @@ app.get('/api/todos', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.ilike('project_path', `%${project}%`);
     }
     if (status && status !== 'all') {
       query = query.eq('status', status);
@@ -852,7 +854,7 @@ app.get('/api/docs', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.ilike('project_path', `%${project}%`);
     }
     if (category) {
       query = query.eq('category', category);
@@ -945,7 +947,7 @@ app.get('/api/query', async (req, res) => {
     }
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.ilike('project_path', `%${project}%`);
     }
 
     if (category) {
@@ -1215,3 +1217,5 @@ app.listen(PORT, () => {
 ====================================
   `);
 });
+
+// Periodic processor removed - relying on Chad -> Susan catalog flow

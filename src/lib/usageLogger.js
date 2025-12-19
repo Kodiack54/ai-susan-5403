@@ -8,6 +8,9 @@ const { Logger } = require('./logger');
 
 const logger = new Logger('Susan:UsageLogger');
 
+// System UUID for AI workers (all zeros)
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+
 // OpenAI pricing (per 1M tokens)
 const MODEL_PRICING = {
   'gpt-4o': { input: 2.5, output: 10.0 },
@@ -40,8 +43,8 @@ async function logUsage({
     const costUsd = calculateCost(model, inputTokens, outputTokens);
 
     const { error } = await from('dev_ai_usage').insert({
-      user_id: 'system',
-      project_id: projectPath,
+      user_id: SYSTEM_USER_ID,
+      project_id: null,
       model,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
@@ -57,7 +60,7 @@ async function logUsage({
       return null;
     }
 
-    logger.debug('Usage logged', {
+    logger.info('Usage logged', {
       model,
       tokens: inputTokens + outputTokens,
       cost: `$${costUsd.toFixed(6)}`

@@ -25,6 +25,10 @@ const tablesRoutes = require('./tables');
 const codeChangesRoutes = require('./codeChanges');
 const filesRoutes = require('./files');
 const bucketRoutes = require('./bucket-monitor');
+const quickParseRoutes = require('./quickParse');
+const migrateRoutes = require('./migrate');
+const projectsRoutes = require('./projects');
+const sessionsRoutes = require('./sessions');
 
 const app = express();
 app.use(cors());
@@ -51,5 +55,8 @@ app.use('/api', tablesRoutes);
 app.use('/api', codeChangesRoutes);
 app.use('/api', filesRoutes);
 app.use('/api/bucket', bucketRoutes);
+app.use('/api/migrate', migrateRoutes);
+app.use('/api/projects', projectsRoutes);
+app.use('/api/sessions', sessionsRoutes);
 
 module.exports = app;

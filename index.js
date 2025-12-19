@@ -26,6 +26,23 @@ async function start() {
   const knowledgeService = require('./src/services/knowledgeService');
   await knowledgeService.initialize();
   logger.info('Knowledge service initialized');
+  // 3. Start cleaner service (30 min cleanup cycle)
+  const cleanerService = require('./src/services/cleanerService');
+  cleanerService.start();
+  // 4. Start session detector (auto /start on new sessions)
+  const sessionDetector = require('./src/services/sessionDetector');
+  sessionDetector.start();
+    // 5. Start project organizer (auto-create folders)
+    const projectOrganizer = require('./src/services/projectOrganizer');
+    await projectOrganizer.initialize();
+    logger.info('Project organizer initialized (Dewey Decimal System)');
+
+  // 6. Start extraction sorter (processes Chad's extractions)
+  const extractionSorter = require('./src/services/extractionSorter');
+  extractionSorter.startSorter();
+  logger.info('Extraction sorter started (30s cycle)');
+  logger.info('Session detector started (auto /start)');
+  logger.info('Cleaner service started (30 min cycle)');
 
   // 3. Discover catalogers
   const catalogerRegistry = require('./src/catalogers/registry');

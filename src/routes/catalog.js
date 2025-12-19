@@ -161,10 +161,32 @@ router.post('/catalog', async (req, res) => {
     return res.status(400).json({ error: 'extraction required' });
   }
 
-  // Look up project from path - notify if unknown
-  const projectInfo = await lookupProjectFromPath(projectPath);
+  // Check for routing info from Chad's context-aware extraction
+  const routingInfo = extraction.routing || null;
+  const routingConfidence = extraction.routingConfidence || 0;
+  
+  let projectInfo;
+  
+  // Use Chad's routing if confidence is high enough
+  if (routingInfo && routingConfidence >= 0.6) {
+    projectInfo = {
+      project_id: routingInfo.project_id,
+      client_id: routingInfo.client_id,
+      platform_id: routingInfo.platform_id,
+      project_name: routingInfo.project_name || 'From Chad routing',
+      project_path: projectPath,
+      matched_via: 'chad_context_detection'
+    };
+    logger.info('Using Chad routing', { routingConfidence, routing: routingInfo });
+  } else {
+    // Fall back to path lookup
+    projectInfo = await lookupProjectFromPath(projectPath);
+  }
+  
+  // Handle unknown project
   if (!projectInfo) {
     logger.warn('Unknown project path', { projectPath, sessionId });
+    await createFolderForPath(projectPath, routingInfo);
     await notifyUnknownPath(projectPath, sessionId);
     // Continue processing anyway, but flag it
   } else {
@@ -230,8 +252,11 @@ router.post('/catalog', async (req, res) => {
               description: todo.description || null,
               priority: todo.priority || 'medium',
               status: 'pending',
-              source_session_id: sessionId,
-              category: todo.targetProject ? 'cross-project' : 'extracted'
+              discovered_in: sessionId,
+              category: todo.targetProject ? 'cross-project' : 'extracted',
+              client_id: projectInfo?.client_id || null,
+              platform_id: projectInfo?.platform_id || null,
+              project_id: projectInfo?.project_id || null
             });
             results.todosAdded++;
             if (todo.targetProject) {
@@ -308,7 +333,8 @@ router.post('/catalog', async (req, res) => {
               title: item.title,
               summary: item.summary,
               importance: getCategoryImportance(item.category),
-              session_id: sessionId
+              session_id: sessionId,
+              client_id: projectInfo?.client_id || null
             });
             results.knowledgeAdded++;
           }
@@ -362,7 +388,8 @@ router.post('/catalog', async (req, res) => {
               title: `Commit: ${commit.message?.slice(0, 50) || 'Unknown'}`,
               summary: JSON.stringify(commit),
               importance: 6,
-              session_id: sessionId
+              session_id: sessionId,
+              client_id: projectInfo?.client_id || null
             });
             results.commitsLogged++;
           } catch (innerErr) {
@@ -818,3 +845,71 @@ router.post('/migrate-bugs', async (req, res) => {
 });
 
 module.exports = router;
+
+/**
+ * Create folder structure for a new path
+ * Susan auto-creates project paths when she encounters new folders
+ */
+async function createFolderForPath(path, routingInfo = null) {
+  try {
+    // Check if path already exists
+    const { data: existing } = await from('dev_project_paths')
+      .select('id')
+      .eq('path', path)
+      .limit(1);
+
+    if (existing && existing.length > 0) {
+      logger.info('Path already exists', { path });
+      return existing[0];
+    }
+
+    // Try to find parent project from path
+    let projectId = null;
+    let clientId = routingInfo?.client_id || null;
+    
+    // Look for parent path that matches
+    const pathParts = path.split('/');
+    for (let i = pathParts.length - 1; i >= 3; i--) {
+      const parentPath = pathParts.slice(0, i).join('/');
+      const { data: parent } = await from('dev_project_paths')
+        .select('project_id')
+        .eq('path', parentPath)
+        .limit(1);
+      
+      if (parent && parent.length > 0) {
+        projectId = parent[0].project_id;
+        break;
+      }
+    }
+
+    // If no parent found, use routing info to find project
+    if (!projectId && routingInfo?.project_id) {
+      projectId = routingInfo.project_id;
+    }
+
+    // Create the folder entry
+    const folderName = pathParts[pathParts.length - 1];
+    const { data: newPath, error } = await from('dev_project_paths').insert({
+      project_id: projectId,
+      path_type: 'folder',
+      path: path,
+      label: folderName,
+      description: `Auto-created by Susan`,
+      is_active: true,
+      sort_order: 99
+    });
+
+    if (error) {
+      logger.error('Failed to create folder', { error: error.message, path });
+      return null;
+    }
+
+    logger.info('Created new folder', { path, projectId, folderName });
+    return newPath;
+  } catch (err) {
+    logger.error('Error creating folder', { error: err.message, path });
+    return null;
+  }
+}
+
+module.exports.createFolderForPath = createFolderForPath;

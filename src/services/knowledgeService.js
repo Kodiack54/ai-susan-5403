@@ -7,6 +7,8 @@ const { from } = require('../lib/db');
 const { extractKnowledge } = require('../lib/openai');
 const { Logger } = require('../lib/logger');
 const config = require('../lib/config');
+const { detectProject } = require('./projectDetector');
+const { ensureConceptFolder } = require('./conceptDetector');
 
 const logger = new Logger('Susan:KnowledgeService');
 
@@ -21,12 +23,25 @@ async function initialize() {
 /**
  * Process content for knowledge extraction
  */
-async function processContent(sessionId, projectPath, content, metadata = {}) {
+async function processContent(sessionId, sessionProjectPath, content, metadata = {}) {
   if (content.length < config.MIN_CONTENT_LENGTH) {
     return null;
   }
 
   try {
+    // Use content-based project detection instead of blindly trusting session
+    const detection = detectProject(content, sessionProjectPath);
+    const projectPath = detection.project;
+    
+    if (detection.project !== sessionProjectPath) {
+      logger.info('Project override via content detection', {
+        sessionProject: sessionProjectPath,
+        detectedProject: detection.project,
+        confidence: detection.confidence,
+        reason: detection.reason
+      });
+    }
+
     const result = await extractKnowledge(content);
 
     if (result.shouldRemember && result.knowledge) {
@@ -45,6 +60,21 @@ async function processContent(sessionId, projectPath, content, metadata = {}) {
  * If similar knowledge exists, flag conflict for dev review instead of overwriting
  */
 async function storeKnowledge(sessionId, projectPath, knowledge, metadata = {}) {
+  // Check for new concepts that need subfolders
+  const contentForConcept = [knowledge.title, knowledge.summary, knowledge.details].filter(Boolean).join(' ');
+  const conceptResult = await ensureConceptFolder(projectPath, contentForConcept);
+  
+  if (conceptResult?.created) {
+    logger.info('Created new concept folder', {
+      concept: conceptResult.conceptName,
+      subPath: conceptResult.subPath,
+      project: projectPath
+    });
+    // Add concept path to metadata
+    metadata.conceptPath = conceptResult.subPath;
+    metadata.conceptName = conceptResult.conceptName;
+  }
+
   // Check for potential conflicts with existing knowledge
   const conflict = await checkForConflicts(projectPath, knowledge);
 
