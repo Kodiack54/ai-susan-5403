@@ -403,7 +403,7 @@ Return JSON:
     });
 
     const extracted = JSON.parse(response.choices[0].message.content);
-    const projectPath = extracted.project_path || session.project_path || '/var/www/NextBid_Dev/dev-studio-5000';
+    const projectPath = extracted.project_path || session.project_path || '/var/www/Kodiack_Studio';
 
     // Store extracted items
     let itemsStored = 0;
@@ -1130,7 +1130,7 @@ app.post('/api/chat', async (req, res) => {
       messages: [
         {
           role: 'system',
-          content: `You are Susan, the AI Team Librarian at NextBid Dev Studio. You work on port 5403.
+          content: `You are Susan, the AI Team Librarian at Kodiack Studios. You work on port 5403.
 
 Your job:
 - Catalog all conversations and extract knowledge
