@@ -53,6 +53,7 @@ async function runCleanup() {
     emptySessionsRemoved: 0,
     oldMessagesArchived: 0,
     duplicatesRemoved: 0,
+    duplicateTodosRemoved: 0,
     activityCleaned: 0
   };
 
@@ -65,6 +66,10 @@ async function runCleanup() {
 
     // 3. Remove duplicate knowledge entries
     stats.duplicatesRemoved = await cleanDuplicateKnowledge();
+    stats.duplicateTodosRemoved = await cleanDuplicateTodos();
+
+    // 3b. Clean duplicates from ALL tables
+    stats.allDuplicatesRemoved = await cleanAllDuplicates();
 
     // 4. Clean old activity data
     stats.activityCleaned = await cleanActivityData();
@@ -204,7 +209,42 @@ async function cleanDuplicateKnowledge() {
 /**
  * Clean old activity data
  */
-async function cleanActivityData() {
+
+  /**
+   * Remove duplicate todo entries (same title + project)
+   */
+  async function cleanDuplicateTodos() {
+    try {
+      const { data: todos } = await from('dev_ai_todos')
+        .select('id, title, project_path, created_at')
+        .order('created_at', { ascending: true });
+
+      if (!todos?.length) return 0;
+
+      const seen = new Map();
+      const duplicates = [];
+
+      for (const t of todos) {
+        const key = t.project_path + ':' + (t.title || '').toLowerCase();
+        if (seen.has(key)) {
+          duplicates.push(seen.get(key).id);
+        }
+        seen.set(key, t);
+      }
+
+      if (duplicates.length > 0) {
+        await from('dev_ai_todos').delete().in('id', duplicates);
+        logger.info('Removed duplicate todos', { count: duplicates.length });
+      }
+
+      return duplicates.length;
+    } catch (err) {
+      logger.error('cleanDuplicateTodos failed', { error: err.message });
+      return 0;
+    }
+  }
+
+  async function cleanActivityData() {
   try {
     const cutoff = new Date(Date.now() - RETENTION.activity_data * 24 * 60 * 60 * 1000).toISOString();
 
@@ -256,3 +296,53 @@ module.exports = {
   runCleanup,
   getStats
 };
+
+/**
+ * Clean duplicate entries from ALL extraction tables
+ * Added to prevent duplicate buildup across all tables
+ */
+async function cleanAllDuplicates() {
+  const tables = [
+    { name: 'dev_ai_todos', titleCol: 'title' },
+    { name: 'dev_ai_bugs', titleCol: 'title' },
+    { name: 'dev_ai_journal', titleCol: 'title' },
+    { name: 'dev_ai_decisions', titleCol: 'title' },
+    { name: 'dev_ai_lessons', titleCol: 'title' },
+    { name: 'dev_ai_conventions', titleCol: 'name' },
+  ];
+
+  let totalRemoved = 0;
+
+  for (const table of tables) {
+    try {
+      const { data: rows } = await from(table.name)
+        .select(`id, ${table.titleCol}, project_path, created_at`)
+        .order('created_at', { ascending: true });
+
+      if (!rows?.length) continue;
+
+      const seen = new Map();
+      const duplicates = [];
+
+      for (const row of rows) {
+        const title = row[table.titleCol] || '';
+        const key = `${row.project_path}:${title.toLowerCase().substring(0, 100)}`;
+        if (seen.has(key)) {
+          duplicates.push(row.id);
+        } else {
+          seen.set(key, row);
+        }
+      }
+
+      if (duplicates.length > 0) {
+        await from(table.name).delete().in('id', duplicates);
+        logger.info(`Removed duplicates from ${table.name}`, { count: duplicates.length });
+        totalRemoved += duplicates.length;
+      }
+    } catch (err) {
+      logger.error(`Error cleaning ${table.name}`, { error: err.message });
+    }
+  }
+
+  return totalRemoved;
+}

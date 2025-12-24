@@ -1,0 +1,37 @@
+                                   Table "public.dev_ai_decisions"
+       Column       |           Type           | Collation | Nullable |           Default            
+--------------------+--------------------------+-----------+----------+------------------------------
+ id                 | uuid                     |           | not null | uuid_generate_v4()
+ project_path       | text                     |           | not null | 
+ title              | character varying(500)   |           | not null | 
+ context            | text                     |           |          | 
+ path_a_name        | character varying(200)   |           |          | 
+ path_a_description | text                     |           | not null | 
+ tester_a           | character varying(100)   |           |          | 
+ results_a          | text                     |           |          | 
+ path_b_name        | character varying(200)   |           |          | 
+ path_b_description | text                     |           | not null | 
+ tester_b           | character varying(100)   |           |          | 
+ results_b          | text                     |           |          | 
+ final_decision     | character varying(20)    |           |          | 
+ reasoning          | text                     |           |          | 
+ status             | character varying(20)    |           |          | 'pending'::character varying
+ decided_at         | timestamp with time zone |           |          | 
+ decided_by         | character varying(100)   |           |          | 
+ created_at         | timestamp with time zone |           |          | now()
+ updated_at         | timestamp with time zone |           |          | now()
+ client_id          | uuid                     |           |          | 
+ decision           | text                     |           |          | 
+ rationale          | text                     |           |          | 
+ description        | text                     |           |          | 
+ session_id         | uuid                     |           |          | 
+ platform_id        | uuid                     |           |          | 
+ project_id         | uuid                     |           |          | 
+Indexes:
+    "dev_ai_decisions_pkey" PRIMARY KEY, btree (id)
+    "idx_decisions_project" btree (project_path)
+Foreign-key constraints:
+    "dev_ai_decisions_client_id_fkey" FOREIGN KEY (client_id) REFERENCES dev_clients(id) ON DELETE SET NULL
+Referenced by:
+    TABLE "dev_ai_lessons" CONSTRAINT "dev_ai_lessons_related_decision_id_fkey" FOREIGN KEY (related_decision_id) REFERENCES dev_ai_decisions(id)
+

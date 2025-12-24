@@ -90,7 +90,7 @@ async function storeKnowledge(sessionId, projectPath, knowledge, metadata = {}) 
 
   // No conflict - safe to store
   const { data, error } = await from('dev_ai_knowledge').insert({
-    session_id: sessionId,
+    source_session_id: sessionId,
     project_path: projectPath,
     category: knowledge.category,
     title: knowledge.title,

@@ -203,7 +203,7 @@ async function processKnowledgeItems(items, context = {}) {
         confidence: validation.confidence >= 0.75 ? 'likely' : 'uncertain',
         scope: projectId ? 'project' : (clientId ? 'client' : 'global'),
         source_type: 'session',
-        source_session_id: sessionId || null,
+        
         extracted_by: 'chad'
       }).select('id').single();
       
@@ -626,7 +626,7 @@ async function processKnowledgeItemsWithReview(items, context = {}) {
         confidence: validation.confidence >= 0.75 ? 'likely' : 'uncertain',
         scope: projectId ? 'project' : (clientId ? 'client' : 'global'),
         source_type: 'session',
-        source_session_id: sessionId || null,
+        
         extracted_by: 'chad'
       }).select('id').single();
       

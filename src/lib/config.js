@@ -6,10 +6,6 @@
 const config = {
   PORT: parseInt(process.env.PORT) || 5403,
 
-  // Supabase
-  SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
-
   // OpenAI (for background extraction work)
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL || 'gpt-4o-mini',
@@ -30,13 +26,12 @@ const config = {
   DEBUG: process.env.DEBUG === 'true'
 };
 
-// Validate required config
-const required = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'OPENAI_API_KEY'];
+// Validate required config (only OpenAI needed for AI operations)
+const required = ['OPENAI_API_KEY'];
 const missing = required.filter(key => !config[key]);
 
 if (missing.length > 0) {
-  console.error(`Missing required config: ${missing.join(', ')}`);
-  console.error('Please check your .env file');
+  console.error('[Susan] Missing required config:', missing.join(', '));
 }
 
 module.exports = config;

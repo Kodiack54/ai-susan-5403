@@ -1,37 +1,42 @@
 /**
- * Extraction Sorter - Processes pending extractions from Chad
- * Sorts items from dev_ai_smart_extractions into proper destination tables
+ * Extraction Sorter - Processes pending extractions from Chad/Jen
+ * Sorts items into proper destination tables
+ * NOW WITH CONTENT-BASED PRODUCT ROUTING
  */
 
 const { from, query } = require('../lib/db');
 const { Logger } = require('../lib/logger');
-// Helper to get routing info from project path
-async function getRoutingFromPath(projectPath) {
-  if (!projectPath) return {};
-  try {
-    const { data: pathInfo } = await from('dev_project_paths')
-      .select('project_id')
-      .eq('path', projectPath)
-      .limit(1);
-    if (pathInfo?.[0]?.project_id) {
-      const { data: proj } = await from('dev_projects')
-        .select('client_id, platform_id, id')
-        .eq('id', pathInfo[0].project_id)
-        .single();
-      if (proj) {
-      }
-    }
-  } catch (e) {}
-  return {};
-}
-
-
-const logger = new Logger('Sorter');
 const projectDetector = require('./projectDetector');
 const stripAnsi = require('../../shared/stripAnsi');
 
+const logger = new Logger('Sorter');
+
+// NEW 20-bucket format mapping
+const BUCKET_TO_TABLE = {
+  'Bugs Open': 'dev_ai_bugs',
+  'Bugs Fixed': 'dev_ai_bugs',
+  'Todos': 'dev_ai_todos',
+  'Journal': 'dev_ai_journal',
+  'Work Log': 'dev_ai_journal',
+  'Ideas': 'dev_ai_knowledge',
+  'Decisions': 'dev_ai_decisions',
+  'Lessons': 'dev_ai_lessons',
+  'System Breakdown': 'dev_ai_docs',
+  'How-To Guide': 'dev_ai_docs',
+  'Schematic': 'dev_ai_docs',
+  'Reference': 'dev_ai_docs',
+  'Naming Conventions': 'dev_ai_conventions',
+  'File Structure': 'dev_ai_conventions',
+  'Database Patterns': 'dev_ai_conventions',
+  'API Patterns': 'dev_ai_conventions',
+  'Component Patterns': 'dev_ai_conventions',
+  'Quirks & Gotchas': 'dev_ai_knowledge',
+  'Snippets': 'dev_ai_snippets',
+  'Other': 'dev_ai_knowledge'
+};
+
+// Legacy category mapping
 const CATEGORY_TO_TABLE = {
-  // Legacy format (lowercase)
   todo: 'dev_ai_todos',
   bug: 'dev_ai_bugs',
   issue: 'dev_ai_bugs',
@@ -41,30 +46,11 @@ const CATEGORY_TO_TABLE = {
   infrastructure: 'dev_ai_knowledge',
   decision: 'dev_ai_decisions',
   lesson: 'dev_ai_lessons',
-  // New 20-bucket format from Jen
-  'Bugs Open': 'dev_ai_bugs',
-  'Bugs Fixed': 'dev_ai_bugs',
-  'Todos': 'dev_ai_todos',
-  'Journal': 'dev_ai_knowledge',
-  'Work Log': 'dev_ai_knowledge',
-  'Ideas': 'dev_ai_knowledge',
-  'Decisions': 'dev_ai_decisions',
-  'Lessons': 'dev_ai_lessons',
-  'System Breakdown': 'dev_ai_docs',
-  'How-To Guide': 'dev_ai_docs',
-  'Schematic': 'dev_ai_docs',
-  'Reference': 'dev_ai_knowledge',
-  'Naming Conventions': 'dev_ai_conventions',
-  'File Structure': 'dev_ai_conventions',
-  'Database Patterns': 'dev_ai_conventions',
-  'API Patterns': 'dev_ai_conventions',
-  'Component Patterns': 'dev_ai_conventions',
-  'Quirks & Gotchas': 'dev_ai_conventions',
-  'Snippets': 'dev_ai_snippets',
-  'Other': 'dev_ai_knowledge'
+  general: 'dev_ai_knowledge',
+  discovery: 'dev_ai_knowledge'
 };
 
-// Patterns that indicate garbage data - skip these
+// Garbage patterns to filter
 const GARBAGE_PATTERNS = [
   /^\|/,                    // Starts with pipe (table output)
   /^\(\d+\)/,               // Starts with (8) etc
@@ -79,8 +65,121 @@ const GARBAGE_PATTERNS = [
 
 function isGarbage(text) {
   if (!text || text.length < 10) return true;
-  if (text.length > 5000) return true;  // Too long
+  if (text.length > 5000) return true;
   return GARBAGE_PATTERNS.some(p => p.test(text));
+}
+
+// ============ PRODUCT-BASED ROUTING ============
+
+// Product name to project lookup cache
+let productProjectCache = null;
+let productCacheExpiry = 0;
+const PRODUCT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Get routing info by looking up product names
+ * Products like "NextBid Engine" match to project names
+ */
+async function getRoutingFromProducts(products) {
+  if (!products || products.length === 0) return null;
+
+  // Build product-to-project cache if needed
+  const now = Date.now();
+  if (!productProjectCache || now >= productCacheExpiry) {
+    try {
+      const { data: projects } = await from('dev_projects')
+        .select('id, name, slug, client_id, platform_id');
+
+      productProjectCache = {};
+      for (const proj of (projects || [])) {
+        // Index by name (lowercase for matching)
+        productProjectCache[proj.name.toLowerCase()] = {
+          project_id: proj.id,
+          client_id: proj.client_id,
+          platform_id: proj.platform_id
+        };
+        // Also index by slug
+        if (proj.slug) {
+          productProjectCache[proj.slug.toLowerCase()] = {
+            project_id: proj.id,
+            client_id: proj.client_id,
+            platform_id: proj.platform_id
+          };
+        }
+      }
+      productCacheExpiry = now + PRODUCT_CACHE_TTL;
+      logger.debug('Product cache built', { entries: Object.keys(productProjectCache).length });
+    } catch (err) {
+      logger.error('Failed to build product cache', { error: err.message });
+      return null;
+    }
+  }
+
+  // Try to match any product
+  for (const product of products) {
+    const key = product.toLowerCase().trim();
+    if (productProjectCache[key]) {
+      logger.info('Routed by product', { product, project_id: productProjectCache[key].project_id });
+      return productProjectCache[key];
+    }
+
+    // Also try partial match (e.g., "NextBid" matches "NextBid Engine")
+    for (const [name, info] of Object.entries(productProjectCache)) {
+      if (name.includes(key) || key.includes(name)) {
+        logger.info('Routed by partial product match', { product, matchedName: name });
+        return info;
+      }
+    }
+  }
+
+  return null;
+}
+
+// Helper to get routing info from project path
+async function getRoutingFromPath(projectPath) {
+  if (!projectPath) return {};
+  try {
+    const { data: pathInfo } = await from('dev_project_paths')
+      .select('project_id')
+      .eq('path', projectPath)
+      .limit(1);
+    if (pathInfo?.[0]?.project_id) {
+      const { data: proj } = await from('dev_projects')
+        .select('client_id, platform_id, id')
+        .eq('id', pathInfo[0].project_id)
+        .single();
+      if (proj) {
+        return { client_id: proj.client_id, platform_id: proj.platform_id, project_id: proj.id };
+      }
+    }
+  } catch (e) {
+    logger.debug('Error getting routing from path', { error: e.message });
+  }
+  return {};
+}
+
+/**
+ * Get routing - PRODUCTS FIRST, then fall back to path
+ * This is the key function that enables content-based routing
+ */
+async function getRouting(projectPath, metadata) {
+  // Try products first (from metadata)
+  if (metadata) {
+    let meta = metadata;
+    if (typeof meta === 'string') {
+      try { meta = JSON.parse(meta); } catch { meta = {}; }
+    }
+    if (meta.products && Array.isArray(meta.products) && meta.products.length > 0) {
+      const productRouting = await getRoutingFromProducts(meta.products);
+      if (productRouting && productRouting.project_id) {
+        logger.info('Using product-based routing', { products: meta.products, routing: productRouting });
+        return productRouting;
+      }
+    }
+  }
+
+  // Fall back to path-based routing
+  return await getRoutingFromPath(projectPath);
 }
 
 async function processPendingExtractions() {
@@ -108,10 +207,8 @@ async function processPendingExtractions() {
 
     for (const extraction of pending) {
       try {
-        // Clean the content first
         const cleanContent = stripAnsi(extraction.content || '');
-        
-        // Skip garbage
+
         if (isGarbage(cleanContent)) {
           await from('dev_ai_smart_extractions')
             .update({ status: 'skipped' })
@@ -142,9 +239,20 @@ async function processPendingExtractions() {
 }
 
 async function sortExtraction(extraction) {
-  const { id, category, content, project_path, priority, metadata, session_id } = extraction;
+  const { id, category, bucket, content, project_path, priority, metadata, session_id } = extraction;
 
-  const targetTable = CATEGORY_TO_TABLE[category] || 'dev_ai_knowledge';
+  // NEW FORMAT: Use bucket field if present
+  let targetTable;
+  let usedBucket = bucket;
+
+  if (bucket && BUCKET_TO_TABLE[bucket]) {
+    targetTable = BUCKET_TO_TABLE[bucket];
+    logger.debug('Using bucket format', { bucket, targetTable });
+  } else {
+    // LEGACY FORMAT: Use category field
+    targetTable = CATEGORY_TO_TABLE[category] || 'dev_ai_knowledge';
+    logger.debug('Using legacy category format', { category, targetTable });
+  }
 
   let finalProjectPath = project_path;
   if (!finalProjectPath && content) {
@@ -155,16 +263,28 @@ async function sortExtraction(extraction) {
   }
 
   try {
+    // Route to appropriate insert function based on target table
+    // NOW PASSING metadata for product-based routing
     if (targetTable === 'dev_ai_todos') {
-      await insertTodo(extraction, finalProjectPath);
+      await insertTodo(extraction, finalProjectPath, metadata);
     } else if (targetTable === 'dev_ai_bugs') {
-      await insertBug(extraction, finalProjectPath);
+      await insertBug(extraction, finalProjectPath, usedBucket, metadata);
     } else if (targetTable === 'dev_ai_knowledge') {
-      await insertKnowledge(extraction, finalProjectPath);
+      await insertKnowledge(extraction, finalProjectPath, usedBucket, metadata);
     } else if (targetTable === 'dev_ai_decisions') {
-      await insertDecision(extraction, finalProjectPath);
+      await insertDecision(extraction, finalProjectPath, metadata);
     } else if (targetTable === 'dev_ai_lessons') {
-      await insertLesson(extraction, finalProjectPath);
+      await insertLesson(extraction, finalProjectPath, metadata);
+    } else if (targetTable === 'dev_ai_journal') {
+      await insertJournal(extraction, finalProjectPath, usedBucket, metadata);
+    } else if (targetTable === 'dev_ai_docs') {
+      await insertDoc(extraction, finalProjectPath, usedBucket, metadata);
+    } else if (targetTable === 'dev_ai_conventions') {
+      await insertConvention(extraction, finalProjectPath, usedBucket, metadata);
+    } else if (targetTable === 'dev_ai_snippets') {
+      await insertSnippet(extraction, finalProjectPath, metadata);
+    } else {
+      await insertKnowledge(extraction, finalProjectPath, usedBucket, metadata);
     }
 
     await from('dev_ai_smart_extractions')
@@ -173,128 +293,196 @@ async function sortExtraction(extraction) {
 
     return { success: true };
   } catch (err) {
-    logger.error('Error sorting extraction', { id, error: err.message });
-    
+    logger.error('Error sorting extraction', { id, bucket, category, error: err.message });
+
     await from('dev_ai_smart_extractions')
-      .update({ status: 'failed', metadata: { ...metadata, error: err.message } })
+      .update({ status: 'failed', metadata: { ...(metadata || {}), error: err.message } })
       .eq('id', id);
 
     return { success: false, error: err.message };
   }
 }
 
-async function insertTodo(extraction, projectPath) {
-  const { content, priority, session_id, client_id, platform_id, project_id } = extraction;
-  const title = content.substring(0, 200).split('\n')[0];  // First line as title
-  
-  // Get routing from project path if not provided
-  let routingInfo = { client_id, platform_id, project_id };
-  if (!client_id && projectPath) {
-    const { data: pathInfo } = await from('dev_project_paths')
-      .select('project_id')
-      .eq('path', projectPath)
-      .limit(1);
-    if (pathInfo?.[0]?.project_id) {
-      const { data: proj } = await from('dev_projects')
-        .select('client_id, platform_id, id')
-        .eq('id', pathInfo[0].project_id)
-        .single();
-      if (proj) {
-      }
-    }
-  }
-  
+// ============ INSERT FUNCTIONS (now with product routing) ============
+
+async function insertTodo(extraction, projectPath, metadata) {
+  const { content, priority, session_id } = extraction;
+  const title = content.substring(0, 200).split('\n')[0];
+  const routing = await getRouting(projectPath, metadata);
+
   await from('dev_ai_todos').insert({
-    project_path: projectPath || '/var/www/Studio',
+    project_path: projectPath || '/var/www/Kodiack_Studio',
     title: title,
     description: content,
     priority: mapPriority(priority),
     status: 'pending',
     source_session_id: session_id,
-    client_id: routingInfo.client_id || null,
-    project_id: routingInfo.project_id || null
+    client_id: routing.client_id || null,
+    project_id: routing.project_id || null
   });
 }
 
-async function insertBug(extraction, projectPath) {
-  const { content, priority, category, session_id } = extraction;
+async function insertBug(extraction, projectPath, bucket, metadata) {
+  const { content, priority, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRoutingFromPath(projectPath);
-  
+  const routing = await getRouting(projectPath, metadata);
+
+  // Determine status based on bucket
+  const status = bucket === 'Bugs Fixed' ? 'fixed' : 'open';
+
   await from('dev_ai_bugs').insert({
     project_path: projectPath,
     title: title,
     description: content,
     severity: mapPriority(priority),
-    status: 'open',
+    status: status,
     source_session_id: session_id,
     client_id: routing.client_id || null,
     project_id: routing.project_id || null
   });
 }
 
-async function insertKnowledge(extraction, projectPath) {
+async function insertKnowledge(extraction, projectPath, bucket, metadata) {
   const { content, category, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRoutingFromPath(projectPath);
-  
+  const routing = await getRouting(projectPath, metadata);
+
+  // Use bucket as subcategory if available
+  const knowledgeCategory = bucket || category || 'general';
+
   await from('dev_ai_knowledge').insert({
     project_path: projectPath,
     title: title,
     content: content,
-    category: category || 'general',
+    category: knowledgeCategory,
     source_session_id: session_id,
     client_id: routing.client_id || null,
     project_id: routing.project_id || null
   });
 }
 
-async function insertDecision(extraction, projectPath) {
+async function insertDecision(extraction, projectPath, metadata) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRoutingFromPath(projectPath);
-  
+  const routing = await getRouting(projectPath, metadata);
+
   await from('dev_ai_decisions').insert({
     project_path: projectPath,
     title: title,
     description: content,
     status: 'decided',
-    source_session_id: session_id,
+    session_id: session_id,
     client_id: routing.client_id || null,
     project_id: routing.project_id || null
   });
 }
 
-async function insertLesson(extraction, projectPath) {
+async function insertLesson(extraction, projectPath, metadata) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRoutingFromPath(projectPath);
-  
+  const routing = await getRouting(projectPath, metadata);
+
+  // Lessons are APPEND-ONLY - never override
   await from('dev_ai_lessons').insert({
     project_path: projectPath,
     title: title,
-    content: content,
-    source_session_id: session_id,
+    description: content,
     client_id: routing.client_id || null,
     project_id: routing.project_id || null
   });
 }
+
+async function insertJournal(extraction, projectPath, bucket, metadata) {
+  const { content, session_id } = extraction;
+  const title = content.substring(0, 200).split('\n')[0];
+  const routing = await getRouting(projectPath, metadata);
+
+  // Journal entries are APPEND-ONLY - never override
+  const entryType = bucket === 'Work Log' ? 'work_log' : 'journal';
+
+  await from('dev_ai_journal').insert({
+    project_path: projectPath,
+    title: title,
+    content: content,
+    entry_type: entryType,
+    client_id: routing.client_id || null,
+    project_id: routing.project_id || null
+  });
+}
+
+async function insertDoc(extraction, projectPath, bucket, metadata) {
+  const { content, session_id } = extraction;
+  const title = content.substring(0, 200).split('\n')[0];
+  const routing = await getRouting(projectPath, metadata);
+
+  const docTypeMap = { 'System Breakdown': 'breakdown', 'How-To Guide': 'howto', 'Schematic': 'schematic', 'Reference': 'reference' };
+  const docType = docTypeMap[bucket] || 'reference';
+
+  await from('dev_ai_docs').insert({
+    project_path: projectPath,
+    title: title,
+    content: content,
+    doc_type: docType,
+    client_id: routing.client_id || null,
+    project_id: routing.project_id || null
+  });
+}
+
+async function insertConvention(extraction, projectPath, bucket, metadata) {
+  const { content, session_id } = extraction;
+  const title = content.substring(0, 200).split('\n')[0];
+  const routing = await getRouting(projectPath, metadata);
+
+  // Map bucket to convention type (must match UI CATEGORIES ids)
+  const conventionTypeMap = {
+    'Naming Conventions': 'naming',
+    'File Structure': 'structure',
+    'Database Patterns': 'database',
+    'API Patterns': 'api',
+    'Component Patterns': 'component',
+    'Quirks & Gotchas': 'quirk'
+  };
+  const conventionType = conventionTypeMap[bucket] || 'naming';
+
+  await from('dev_ai_conventions').insert({
+    project_path: projectPath,
+    name: title,
+    description: content,
+    convention_type: conventionType,
+    client_id: routing.client_id || null,
+    project_id: routing.project_id || null
+  });
+}
+
+async function insertSnippet(extraction, projectPath, metadata) {
+  const { content, session_id } = extraction;
+  const title = content.substring(0, 200).split('\n')[0];
+  const routing = await getRouting(projectPath, metadata);
+
+  await from('dev_ai_snippets').insert({
+    snippet_type: 'extracted',
+    project_path: projectPath,
+    content: content,
+    session_id: session_id,
+    client_id: routing.client_id || null,
+    project_id: routing.project_id || null
+  });
+}
+
+// ============ HELPERS ============
 
 function mapPriority(priority) {
   const map = { low: 'low', normal: 'medium', high: 'high', critical: 'critical' };
   return map[priority] || 'medium';
 }
 
-function mapSeverity(priority) {
-  const map = { low: 'low', normal: 'medium', high: 'high', critical: 'critical' };
-  return map[priority] || 'medium';
-}
+// ============ SORTER LIFECYCLE ============
 
 let sortInterval = null;
 
 function startSorter() {
   if (sortInterval) return;
-  
+
   logger.info('[Sorter] Starting extraction sorter (30s interval)');
   processPendingExtractions();
   sortInterval = setInterval(processPendingExtractions, 30000);
@@ -312,94 +500,10 @@ module.exports = {
   processPendingExtractions,
   sortExtraction,
   startSorter,
-  stopSorter
+  stopSorter,
+  BUCKET_TO_TABLE,
+  CATEGORY_TO_TABLE,
+  getRouting,
+  getRoutingFromProducts,
+  getRoutingFromPath
 };
-
-// Import new knowledge classifier
-const knowledgeClassifier = require('./knowledgeClassifier');
-
-/**
- * Process categorized knowledge items from Chad's new format
- * These come with suggestedCategory and confidence from Chad
- */
-async function processCategorizedKnowledge(knowledgeItems, context = {}) {
-  if (!knowledgeItems || knowledgeItems.length === 0) {
-    return { processed: 0, stored: 0 };
-  }
-  
-  logger.info(`[Sorter] Processing ${knowledgeItems.length} categorized knowledge items`);
-  
-  const result = await knowledgeClassifier.processKnowledgeItems(knowledgeItems, context);
-  
-  logger.info(`[Sorter] Categorized knowledge: ${result.stored} stored, ${result.overridden} category overrides`);
-  
-  return result;
-}
-
-/**
- * Enhanced extraction processor that handles both old and new formats
- */
-async function processSmartExtraction(extraction, context = {}) {
-  const { sessionId, projectPath, clientId, projectId } = context;
-  
-  // Check if this is the new format with knowledgeItems
-  if (extraction.knowledgeItems && extraction.knowledgeItems.length > 0) {
-    // Process with new classifier
-    const result = await processCategorizedKnowledge(extraction.knowledgeItems, {
-      sessionId,
-      projectPath,
-      clientId,
-      projectId
-    });
-    
-    return {
-      format: 'new',
-      ...result
-    };
-  }
-  
-  // Fall back to old format processing
-  // (legacy knowledge, decisions, bugs arrays without category suggestions)
-  let processed = 0;
-  
-  if (extraction.knowledge) {
-    for (const k of extraction.knowledge) {
-      await insertKnowledge({
-        content: `${k.title}: ${k.summary}`,
-        category: k.category || 'general',
-        session_id: sessionId
-      }, projectPath);
-      processed++;
-    }
-  }
-  
-  if (extraction.decisions) {
-    for (const d of extraction.decisions) {
-      await insertDecision({
-        content: `${d.title}: ${d.rationale}`,
-        session_id: sessionId
-      }, projectPath);
-      processed++;
-    }
-  }
-  
-  if (extraction.bugs) {
-    for (const b of extraction.bugs) {
-      await insertBug({
-        content: b.title,
-        priority: b.severity,
-        session_id: sessionId
-      }, projectPath);
-      processed++;
-    }
-  }
-  
-  return {
-    format: 'legacy',
-    processed
-  };
-}
-
-// Export new functions
-module.exports.processCategorizedKnowledge = processCategorizedKnowledge;
-module.exports.processSmartExtraction = processSmartExtraction;

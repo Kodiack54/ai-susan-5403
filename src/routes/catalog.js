@@ -82,12 +82,12 @@ async function notifyUnknownPath(path, sessionId) {
     }
 
     await from('dev_ai_notifications').insert({
-      from_worker: 'susan',
+      project_path: path,
       notification_type: 'unknown_path',
       title: 'Unknown Project Path Discovered',
       message: `I found a session from a path I don't recognize:\n\n${path}\n\nWhich project should this belong to?`,
-      status: 'unread',
-      metadata: { path, sessionId }
+      is_read: false,
+      
     });
 
     logger.info('Sent unknown path notification', { path });
@@ -331,7 +331,7 @@ router.post('/catalog', async (req, res) => {
               title: item.title,
               summary: item.summary,
               importance: getCategoryImportance(item.category),
-              session_id: sessionId,
+              source_session_id: sessionId,
               client_id: projectInfo?.client_id || null
             });
             results.knowledgeAdded++;
@@ -386,7 +386,7 @@ router.post('/catalog', async (req, res) => {
               title: `Commit: ${commit.message?.slice(0, 50) || 'Unknown'}`,
               summary: JSON.stringify(commit),
               importance: 6,
-              session_id: sessionId,
+              source_session_id: sessionId,
               client_id: projectInfo?.client_id || null
             });
             results.commitsLogged++;

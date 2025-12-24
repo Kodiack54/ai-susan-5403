@@ -29,6 +29,7 @@ const quickParseRoutes = require('./quickParse');
 const migrateRoutes = require('./migrate');
 const projectsRoutes = require('./projects');
 const sessionsRoutes = require('./sessions');
+const ideasRoutes = require("./ideas");
 
 const app = express();
 app.use(cors());
@@ -58,6 +59,7 @@ app.use('/api/bucket', bucketRoutes);
 app.use('/api/migrate', migrateRoutes);
 app.use('/api/projects', projectsRoutes);
 app.use('/api/sessions', sessionsRoutes);
+app.use('/api/ideas', ideasRoutes);
 app.use('/api/quick-parse', quickParseRoutes);
 
 module.exports = app;
