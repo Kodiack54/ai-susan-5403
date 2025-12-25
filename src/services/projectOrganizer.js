@@ -26,7 +26,7 @@
 
   class ProjectOrganizer {
     constructor() {
-      this.basePath = '/var/www/NextBid_Dev';
+      this.basePath = '/var/www/Studio';
       this.knownProjects = new Set();
     }
 

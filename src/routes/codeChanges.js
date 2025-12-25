@@ -15,7 +15,7 @@ const logger = new Logger('Susan:CodeChanges');
  */
 router.post('/code-change', async (req, res) => {
   const {
-    project_path,
+    project_id,
     commit_hash,
     commit_message,
     author,
@@ -23,14 +23,14 @@ router.post('/code-change', async (req, res) => {
     build_number
   } = req.body;
 
-  if (!commit_hash || !project_path) {
-    return res.status(400).json({ error: 'commit_hash and project_path required' });
+  if (!commit_hash || !project_id) {
+    return res.status(400).json({ error: 'commit_hash and project_id required' });
   }
 
   try {
     const { data, error } = await from('dev_ai_code_changes')
       .insert({
-        project_path,
+        project_id,
         commit_hash,
         commit_message,
         author,
@@ -63,7 +63,7 @@ router.get('/code-changes', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     if (author) {

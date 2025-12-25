@@ -13,7 +13,7 @@ const { detectProject, listProjects, PROJECTS } = require('../services/projectDe
 const { Logger } = require('../lib/logger');
 
 const logger = new Logger('Susan:Projects');
-const BASE_PATH = '/var/www/NextBid_Dev';
+const BASE_PATH = '/var/www/Studio';
 
 /**
  * GET /api/projects - List known projects

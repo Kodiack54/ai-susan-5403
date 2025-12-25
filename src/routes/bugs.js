@@ -15,7 +15,7 @@ const logger = new Logger('Susan:Bugs');
  */
 router.post('/bug', async (req, res) => {
   const {
-    project_path,
+    project_id,
     title,
     description,
     severity,
@@ -30,14 +30,14 @@ router.post('/bug', async (req, res) => {
     related_todo_id
   } = req.body;
 
-  if (!title || !project_path) {
-    return res.status(400).json({ error: 'Title and project_path required' });
+  if (!title || !project_id) {
+    return res.status(400).json({ error: 'Title and project_id required' });
   }
 
   try {
     const { data, error } = await from('dev_ai_bugs')
       .insert({
-        project_path,
+        project_id,
         title,
         description,
         severity: severity || 'medium',
@@ -78,7 +78,7 @@ router.get('/bugs', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     if (status) {
@@ -206,7 +206,7 @@ router.get('/bugs/stats', async (req, res) => {
       .select('status, severity, environment, reported_by');
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     const { data, error } = await query;

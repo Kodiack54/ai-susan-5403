@@ -46,11 +46,11 @@ const openai = new OpenAI({
  * Called when Claude connects to give him memory
  */
 app.get('/api/context', async (req, res) => {
-  const projectPath = req.query.project || req.query.path;
+  const projectId = req.query.project || req.query.path;
   const userId = req.query.userId;
 
   try {
-    const context = await buildStartupContext(projectPath, userId);
+    const context = await buildStartupContext(projectId, userId);
     res.json(context);
   } catch (err) {
     console.error('[Susan] Context error:', err.message);
@@ -58,7 +58,7 @@ app.get('/api/context', async (req, res) => {
   }
 });
 
-async function buildStartupContext(projectPath, userId) {
+async function buildStartupContext(projectId, userId) {
   const context = {
     greeting: null,
     lastSession: null,
@@ -70,13 +70,13 @@ async function buildStartupContext(projectPath, userId) {
 
   // 1. Get last session for this project
   let sessionQuery = supabase.from('dev_ai_sessions')
-    .select('id, project_path, started_at, ended_at, summary')
+    .select('id, project_id, started_at, ended_at, summary')
     .eq('status', 'completed')
     .order('ended_at', { ascending: false })
     .limit(1);
 
-  if (projectPath) {
-    sessionQuery = sessionQuery.eq('project_path', projectPath);
+  if (projectId) {
+    sessionQuery = sessionQuery.eq('project_id', projectId);
   }
   if (userId) {
     sessionQuery = sessionQuery.eq('user_id', userId);
@@ -88,7 +88,7 @@ async function buildStartupContext(projectPath, userId) {
     const session = sessions[0];
     context.lastSession = {
       id: session.id,
-      projectPath: session.project_path,
+      projectId: session.project_id,
       startedAt: session.started_at,
       endedAt: session.ended_at,
       summary: session.summary
@@ -110,8 +110,8 @@ async function buildStartupContext(projectPath, userId) {
     .order('importance', { ascending: false })
     .limit(10);
 
-  if (projectPath) {
-    knowledgeQuery = knowledgeQuery.or(`project_path.eq.${projectPath},project_path.is.null`);
+  if (projectId) {
+    knowledgeQuery = knowledgeQuery.or(`project_id.eq.${projectId},project_id.is.null`);
   }
 
   const { data: knowledge } = await knowledgeQuery;
@@ -123,8 +123,8 @@ async function buildStartupContext(projectPath, userId) {
     .order('created_at', { ascending: false })
     .limit(5);
 
-  if (projectPath) {
-    decisionsQuery = decisionsQuery.eq('project_path', projectPath);
+  if (projectId) {
+    decisionsQuery = decisionsQuery.eq('project_id', projectId);
   }
 
   const { data: decisions } = await decisionsQuery;
@@ -199,12 +199,12 @@ function timeAgo(date) {
 // ============================================
 
 app.post('/api/message', async (req, res) => {
-  const { sessionId, projectPath, message } = req.body;
+  const { sessionId, projectId, message } = req.body;
 
   try {
     // Check if this message contains something worth remembering
     if (message.role === 'assistant' && message.content.length > 50) {
-      await extractKnowledge(sessionId, projectPath, message.content);
+      await extractKnowledge(sessionId, projectId, message.content);
     }
     res.json({ success: true });
   } catch (err) {
@@ -213,7 +213,7 @@ app.post('/api/message', async (req, res) => {
   }
 });
 
-async function extractKnowledge(sessionId, projectPath, content) {
+async function extractKnowledge(sessionId, projectId, content) {
   // Skip short or trivial messages
   if (content.length < 100) return;
 
@@ -264,7 +264,7 @@ If nothing worth remembering, set shouldRemember: false.`
       const k = result.knowledge;
       const { error } = await supabase.from('dev_ai_knowledge').insert({
         session_id: sessionId,
-        project_path: projectPath,
+        project_id: projectId,
         category: k.category,
         title: k.title,
         summary: k.summary,
@@ -390,7 +390,7 @@ Return JSON:
   "decisions": [{"title": "", "content": ""}],
   "todos": [{"title": "", "description": "", "priority": "low|medium|high"}],
   "knowledge": [{"title": "", "content": "", "category": "architecture|bug-fix|config|workflow"}],
-  "project_path": "/detected/project/path or null"
+  "project_id": "/detected/project/path or null"
 }`
         },
         {
@@ -403,7 +403,7 @@ Return JSON:
     });
 
     const extracted = JSON.parse(response.choices[0].message.content);
-    const projectPath = extracted.project_path || session.project_path || '/var/www/Studio';
+    const projectId = extracted.project_id || session.project_id || '/var/www/Studio';
 
     // Store extracted items
     let itemsStored = 0;
@@ -415,7 +415,7 @@ Return JSON:
         // Check for similar existing todos
         const { data: existingTodos } = await supabase.from('dev_ai_todos')
           .select('id, title, description, priority, status')
-          .eq('project_path', projectPath)
+          .eq('project_id', projectId)
           .ilike('title', `%${todo.title.split(' ').slice(0, 3).join('%')}%`)
           .limit(3);
 
@@ -429,7 +429,7 @@ Return JSON:
         }
 
         await supabase.from('dev_ai_todos').insert({
-          project_path: projectPath,
+          project_id: projectId,
           title: todo.title,
           description: todo.description,
           priority: todo.priority || 'medium',
@@ -446,7 +446,7 @@ Return JSON:
         // Check for similar existing knowledge
         const { data: existingKnowledge } = await supabase.from('dev_ai_knowledge')
           .select('id, title, summary, category')
-          .eq('project_path', projectPath)
+          .eq('project_id', projectId)
           .ilike('title', `%${k.title.split(' ').slice(0, 3).join('%')}%`)
           .limit(3);
 
@@ -460,7 +460,7 @@ Return JSON:
         }
 
         await supabase.from('dev_ai_knowledge').insert({
-          project_path: projectPath,
+          project_id: projectId,
           title: k.title,
           summary: k.content,
           category: k.category || 'general',
@@ -477,7 +477,7 @@ Return JSON:
         // Check for conflicting decisions
         const { data: existingDecisions } = await supabase.from('dev_ai_decisions')
           .select('id, title, decision, rationale')
-          .eq('project_path', projectPath)
+          .eq('project_id', projectId)
           .ilike('title', `%${decision.title.split(' ').slice(0, 3).join('%')}%`)
           .limit(3);
 
@@ -490,7 +490,7 @@ Return JSON:
         }
 
         await supabase.from('dev_ai_decisions').insert({
-          project_path: projectPath,
+          project_id: projectId,
           title: decision.title,
           decision: decision.content,
           rationale: decision.rationale || '',
@@ -502,7 +502,7 @@ Return JSON:
 
     // If conflicts found, notify user via chat
     if (conflicts.length > 0) {
-      await notifyUserOfConflicts(projectPath, conflicts);
+      await notifyUserOfConflicts(projectId, conflicts);
     }
 
     // Update session as processed with summary
@@ -590,12 +590,12 @@ Return JSON:
 /**
  * Notify user of conflicts via chat message
  */
-async function notifyUserOfConflicts(projectPath, conflicts) {
+async function notifyUserOfConflicts(projectId, conflicts) {
   try {
     // Store conflicts for later resolution
     for (const conflict of conflicts) {
       await supabase.from('dev_ai_conflicts').insert({
-        project_path: projectPath,
+        project_id: projectId,
         conflict_type: conflict.type,
         new_item: conflict.newItem,
         existing_items: conflict.existingItems,
@@ -621,7 +621,7 @@ You can resolve these in the Session Hub under "Pending Conflicts" or just tell 
     await supabase.from('dev_ai_notifications').insert({
       type: 'conflict',
       from_worker: 'susan',
-      project_path: projectPath,
+      project_id: projectId,
       title: `${conflicts.length} Conflict${conflicts.length > 1 ? 's' : ''} Found`,
       message,
       status: 'unread',
@@ -639,15 +639,15 @@ You can resolve these in the Session Hub under "Pending Conflicts" or just tell 
 // ============================================
 
 app.get('/api/conflicts', async (req, res) => {
-  const { project_path, status = 'pending' } = req.query;
+  const { project_id, status = 'pending' } = req.query;
 
   try {
     let query = supabase.from('dev_ai_conflicts')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (project_path) {
-      query = query.ilike('project_path', `%${project_path}%`);
+    if (project_id) {
+      query = query.ilike('project_id', `%${project_id}%`);
     }
     if (status !== 'all') {
       query = query.eq('status', status);
@@ -683,7 +683,7 @@ app.post('/api/conflicts/resolve', async (req, res) => {
       const tableName = `dev_ai_${conflict.conflict_type}s`; // todos, knowledge, decisions
 
       await supabase.from(tableName).insert({
-        project_path: conflict.project_path,
+        project_id: conflict.project_id,
         title: newItem.title,
         ...newItem
       });
@@ -765,7 +765,7 @@ app.get('/api/todos', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.ilike('project_path', `%${project}%`);
+      query = query.ilike('project_id', `%${project}%`);
     }
     if (status && status !== 'all') {
       query = query.eq('status', status);
@@ -781,10 +781,10 @@ app.get('/api/todos', async (req, res) => {
 });
 
 app.post('/api/todo', async (req, res) => {
-  const { title, description, priority, status, project_path } = req.body;
+  const { title, description, priority, status, project_id } = req.body;
 
-  if (!title || !project_path) {
-    return res.status(400).json({ error: 'title and project_path required' });
+  if (!title || !project_id) {
+    return res.status(400).json({ error: 'title and project_id required' });
   }
 
   try {
@@ -794,7 +794,7 @@ app.post('/api/todo', async (req, res) => {
         description,
         priority: priority || 'medium',
         status: status || 'pending',
-        project_path
+        project_id
       })
       .select()
       .single();
@@ -854,7 +854,7 @@ app.get('/api/docs', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.ilike('project_path', `%${project}%`);
+      query = query.ilike('project_id', `%${project}%`);
     }
     if (category) {
       query = query.eq('category', category);
@@ -870,10 +870,10 @@ app.get('/api/docs', async (req, res) => {
 });
 
 app.post('/api/doc', async (req, res) => {
-  const { title, content, category, project_path } = req.body;
+  const { title, content, category, project_id } = req.body;
 
-  if (!title || !content || !project_path) {
-    return res.status(400).json({ error: 'title, content, and project_path required' });
+  if (!title || !content || !project_id) {
+    return res.status(400).json({ error: 'title, content, and project_id required' });
   }
 
   try {
@@ -882,7 +882,7 @@ app.post('/api/doc', async (req, res) => {
         title,
         content,
         category: category || 'general',
-        project_path
+        project_id
       })
       .select()
       .single();
@@ -947,7 +947,7 @@ app.get('/api/query', async (req, res) => {
     }
 
     if (project) {
-      query = query.ilike('project_path', `%${project}%`);
+      query = query.ilike('project_id', `%${project}%`);
     }
 
     if (category) {
@@ -975,7 +975,7 @@ app.get('/api/query', async (req, res) => {
 // ============================================
 
 app.post('/api/remember', async (req, res) => {
-  const { category, title, summary, details, tags, projectPath, importance } = req.body;
+  const { category, title, summary, details, tags, projectId, importance } = req.body;
 
   try {
     const { data, error } = await supabase.from('dev_ai_knowledge')
@@ -985,7 +985,7 @@ app.post('/api/remember', async (req, res) => {
         summary,
         details,
         tags: tags || [],
-        project_path: projectPath,
+        project_id: projectId,
         importance: importance || 5
       })
       .select('id')
@@ -1052,7 +1052,7 @@ app.get('/api/schemas', async (req, res) => {
 // ============================================
 
 app.post('/api/decision', async (req, res) => {
-  const { sessionId, title, context, decision, alternatives, rationale, projectPath, tags } = req.body;
+  const { sessionId, title, context, decision, alternatives, rationale, projectId, tags } = req.body;
 
   try {
     const { data, error } = await supabase.from('dev_ai_decisions')
@@ -1063,7 +1063,7 @@ app.post('/api/decision', async (req, res) => {
         decision,
         alternatives: alternatives || [],
         rationale,
-        project_path: projectPath,
+        project_id: projectId,
         tags: tags || []
       })
       .select('id')
@@ -1083,7 +1083,7 @@ app.post('/api/decision', async (req, res) => {
 // ============================================
 
 app.post('/api/chat', async (req, res) => {
-  const { message, context, projectPath } = req.body;
+  const { message, context, projectId } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: 'Message required' });

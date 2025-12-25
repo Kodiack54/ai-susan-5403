@@ -17,15 +17,15 @@ const logger = new Logger('Susan:Conflicts');
  * GET /api/conflicts - Get all pending conflicts
  */
 router.get('/conflicts', async (req, res) => {
-  const { project_path, status = 'pending', priority } = req.query;
+  const { project_id, status = 'pending', priority } = req.query;
 
   try {
     let query = from('dev_ai_conflicts')
       .select('*')
       .order('created_at', { ascending: false });
 
-    if (project_path) {
-      query = query.eq('project_path', project_path);
+    if (project_id) {
+      query = query.eq('project_id', project_id);
     }
 
     if (status !== 'all') {
@@ -58,7 +58,7 @@ router.get('/conflicts', async (req, res) => {
  */
 router.post('/conflicts/flag', async (req, res) => {
   const {
-    project_path,
+    project_id,
     existing_table,
     existing_id,
     existing_content,
@@ -79,7 +79,7 @@ router.post('/conflicts/flag', async (req, res) => {
   try {
     const { data: conflict, error } = await from('dev_ai_conflicts')
       .insert({
-        project_path,
+        project_id,
         existing_table,
         existing_id,
         existing_content,
@@ -109,7 +109,7 @@ router.post('/conflicts/flag', async (req, res) => {
     await from('dev_ai_notifications')
       .insert({
         dev_id: 'assigned', // Will be resolved to actual dev
-        project_path,
+        project_id,
         notification_type: 'conflict',
         title: `Knowledge Conflict Detected: ${conflict_type}`,
         message: conflict_description || `New information contradicts existing ${existing_table} record`,
@@ -188,7 +188,7 @@ router.post('/conflicts/resolve', async (req, res) => {
       if (conflict.existing_table === 'dev_ai_knowledge') {
         await from('dev_ai_knowledge')
           .insert({
-            project_path: conflict.project_path,
+            project_id: conflict.project_id,
             content: conflict.new_content,
             source: conflict.new_source || 'conflict_resolution',
             created_at: new Date().toISOString()

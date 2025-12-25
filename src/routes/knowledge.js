@@ -21,7 +21,7 @@ router.get('/query', async (req, res) => {
 
   try {
     let query = from('dev_ai_knowledge')
-      .select('id, category, title, summary, tags, importance, created_at, project_path')
+      .select('id, category, title, summary, tags, importance, created_at, project_id')
       .order('importance', { ascending: false })
       .limit(parseInt(limit));
 
@@ -30,7 +30,7 @@ router.get('/query', async (req, res) => {
     }
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     if (category) {
@@ -96,7 +96,7 @@ router.post('/remember', async (req, res) => {
         summary,
         details,
         tags: tags || [],
-        project_path: finalProject,
+        project_id: finalProject,
         importance: importance || 5
       })
       .select('id')
@@ -244,7 +244,7 @@ router.get('/category-stats', async (req, res) => {
 router.get('/queue-stats', async (req, res) => {
   try {
     // Get pending extractions count
-    const { data: pending, error: pendingErr } = await from('dev_ai_smart_extractions')
+    const { data: pending, error: pendingErr } = await from('dev_ai_staging')
       .select('id, extraction_type, created_at')
       .eq('status', 'pending');
 

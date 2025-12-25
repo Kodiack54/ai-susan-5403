@@ -74,13 +74,13 @@ router.post('/summarize', async (req, res) => {
 
     // Get project path from session for Clair's work log
     const { data: session } = await from('dev_ai_sessions')
-      .select('project_path')
+      .select('project_id')
       .eq('id', sessionId)
       .single();
 
     // Log work session to Clair's journal
-    if (session?.project_path && summary) {
-      await clairClient.logWorkSession(session.project_path, summary, sessionId);
+    if (session?.project_id && summary) {
+      await clairClient.logWorkSession(session.project_id, summary, sessionId);
       logger.info('Work session logged to Clair', { sessionId });
     }
 
@@ -104,13 +104,13 @@ async function processForKnowledge(sessionId, projectPath, content) {
       const k = result.knowledge;
 
       // Determine project path based on scope
-      // Global knowledge (ports, team roster, shared patterns) uses null project_path
+      // Global knowledge (ports, team roster, shared patterns) uses null project_id
       const isGlobal = k.scope === 'global';
       const effectiveProjectPath = isGlobal ? null : projectPath;
 
       const { error } = await from('dev_ai_knowledge').insert({
         session_id: sessionId,
-        project_path: effectiveProjectPath,
+        project_id: effectiveProjectPath,
         category: k.category,
         title: k.title,
         summary: k.summary,

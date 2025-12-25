@@ -14,16 +14,16 @@ const logger = new Logger('Susan:Notes');
  * POST /api/note - Create a note
  */
 router.post('/note', async (req, res) => {
-  const { project_path, title, content } = req.body;
+  const { project_id, title, content } = req.body;
 
-  if (!title || !project_path) {
-    return res.status(400).json({ error: 'Title and project_path required' });
+  if (!title || !project_id) {
+    return res.status(400).json({ error: 'Title and project_id required' });
   }
 
   try {
     const { data, error } = await from('dev_ai_notes')
       .insert({
-        project_path,
+        project_id,
         title,
         content: content || ''
       })
@@ -53,7 +53,7 @@ router.get('/notes', async (req, res) => {
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     const { data, error } = await query;

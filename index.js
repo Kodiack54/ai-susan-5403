@@ -39,7 +39,12 @@ async function start() {
 
   // 6. Start extraction sorter (processes Chad's extractions)
   const extractionSorter = require('./src/services/extractionSorter');
-  extractionSorter.startSorter();
+  // DISABLED - using new validator
+  // extractionSorter.startSorter();
+  // 7. Start pipeline processor (flagged -> pending)
+  const pipelineProcessor = require("./src/services/pipelineProcessor");
+  pipelineProcessor.start();
+  logger.info("Pipeline processor started (30s cycle)");
   logger.info('Extraction sorter started (30s cycle)');
   logger.info('Session detector started (auto /start)');
   logger.info('Cleaner service started (30 min cycle)');
@@ -194,3 +199,29 @@ start().catch(err => {
   logger.error('Startup failed', { error: err.message, stack: err.stack });
   process.exit(1);
 });
+
+// ============================================
+// NEW: VALIDATOR - Process flagged items to pending
+// ============================================
+const validator = require('./src/services/validator');
+
+const VALIDATOR_INTERVAL = 30 * 1000; // 30 seconds
+
+async function runValidator() {
+  try {
+    const result = await validator.process();
+    if (result.validated > 0) {
+      console.log('[Susan:Validator] Validated', result.validated, 'items');
+    }
+  } catch (err) {
+    console.error('[Susan:Validator] Error:', err.message);
+  }
+}
+
+// Start validator loop after a brief delay
+setTimeout(() => {
+  console.log('[Susan] Starting validator (30s interval)');
+  setInterval(runValidator, VALIDATOR_INTERVAL);
+  runValidator(); // Run immediately first time
+}, 5000);
+

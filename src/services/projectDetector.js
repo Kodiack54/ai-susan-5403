@@ -1,7 +1,7 @@
 /**
  * Susan Project Detector - Database-Driven
  *
- * Loads projects from dev_projects and dev_project_paths tables
+ * Loads projects from dev_projects and dev_project_ids tables
  * Supports client/parent/child hierarchy
  * Matches content against project paths, names, and slugs
  */
@@ -35,7 +35,7 @@ async function loadProjectsFromDB() {
     if (projError) throw projError;
 
     // Get all project paths
-    const { data: paths, error: pathError } = await from('dev_project_paths')
+    const { data: paths, error: pathError } = await from('dev_project_ids')
       .select('project_id, path, path_type')
       .order('project_id');
 

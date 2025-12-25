@@ -91,7 +91,7 @@ async function storeKnowledge(sessionId, projectPath, knowledge, metadata = {}) 
   // No conflict - safe to store
   const { data, error } = await from('dev_ai_knowledge').insert({
     source_session_id: sessionId,
-    project_path: projectPath,
+    project_id: projectPath,
     category: knowledge.category,
     title: knowledge.title,
     summary: knowledge.summary,
@@ -124,7 +124,7 @@ async function checkForConflicts(projectPath, newKnowledge) {
   const { data: existing } = await from('dev_ai_knowledge')
     .select('id, title, summary, details, category')
     .eq('category', newKnowledge.category)
-    .or(`project_path.eq.${projectPath},project_path.is.null`)
+    .or(`project_id.eq.${projectPath},project_id.is.null`)
     .ilike('title', `%${newKnowledge.title.substring(0, 50)}%`);
 
   if (!existing || existing.length === 0) {
@@ -207,7 +207,7 @@ function detectContentConflict(existing, newKnowledge) {
  */
 async function flagConflict(projectPath, existingRecord, newKnowledge, source) {
   const { error } = await from('dev_ai_conflicts').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     existing_table: 'dev_ai_knowledge',
     existing_id: existingRecord.id,
     existing_content: existingRecord.details,
@@ -228,7 +228,7 @@ async function flagConflict(projectPath, existingRecord, newKnowledge, source) {
   // Create notification
   await from('dev_ai_notifications').insert({
     dev_id: 'assigned',
-    project_path: projectPath,
+    project_id: projectPath,
     notification_type: 'conflict',
     title: `Knowledge Conflict: ${newKnowledge.title}`,
     message: `New information may conflict with existing knowledge. Please review.`,
@@ -254,7 +254,7 @@ async function search(query, options = {}) {
   }
 
   if (projectPath) {
-    dbQuery = dbQuery.or(`project_path.eq.${projectPath},project_path.is.null`);
+    dbQuery = dbQuery.or(`project_id.eq.${projectPath},project_id.is.null`);
   }
 
   if (category) {
@@ -278,7 +278,7 @@ async function getByCategory(category, projectPath = null, limit = 20) {
     .limit(limit);
 
   if (projectPath) {
-    query = query.eq('project_path', projectPath);
+    query = query.eq('project_id', projectPath);
   }
 
   const { data, error } = await query;
@@ -297,7 +297,7 @@ async function getMostImportant(projectPath = null, limit = 10) {
     .limit(limit);
 
   if (projectPath) {
-    query = query.or(`project_path.eq.${projectPath},project_path.is.null`);
+    query = query.or(`project_id.eq.${projectPath},project_id.is.null`);
   }
 
   const { data, error } = await query;
@@ -327,7 +327,7 @@ async function getStats(projectPath = null) {
     .select('category, importance');
 
   if (projectPath) {
-    query = query.eq('project_path', projectPath);
+    query = query.eq('project_id', projectPath);
   }
 
   const { data, error } = await query;

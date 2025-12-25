@@ -16,22 +16,22 @@ const logger = new Logger('Susan:Docs');
 router.post('/doc', async (req, res) => {
   // Accept both camelCase and snake_case
   const {
-    projectPath, project_path,
+    projectPath, project_id,
     docType, doc_type, category,
     title, content, tags
   } = req.body;
 
-  const projPath = project_path || projectPath;
+  const projPath = project_id || projectPath;
   const type = category || doc_type || docType || 'general';
 
   if (!projPath || !title) {
-    return res.status(400).json({ error: 'project_path and title required' });
+    return res.status(400).json({ error: 'project_id and title required' });
   }
 
   try {
     const { data, error } = await from('dev_ai_docs')
       .insert({
-        project_path: projPath,
+        project_id: projPath,
         doc_type: type,
         title,
         content: content || '',
@@ -43,7 +43,7 @@ router.post('/doc', async (req, res) => {
 
     if (error) throw error;
 
-    logger.info('Documentation created', { id: data.id, title, project_path: projPath });
+    logger.info('Documentation created', { id: data.id, title, project_id: projPath });
     res.json({ success: true, id: data.id });
   } catch (err) {
     logger.error('Doc create failed', { error: err.message });
@@ -55,33 +55,33 @@ router.post('/doc', async (req, res) => {
  * POST /api/docs - Create/update documentation (legacy upsert)
  */
 router.post('/docs', async (req, res) => {
-  const { projectPath, project_path, docType, doc_type, category, title, content, tags } = req.body;
+  const { projectPath, project_id, docType, doc_type, category, title, content, tags } = req.body;
 
-  const projPath = project_path || projectPath;
+  const projPath = project_id || projectPath;
   const type = category || doc_type || docType || 'general';
 
   if (!projPath || !title) {
-    return res.status(400).json({ error: 'project_path and title required' });
+    return res.status(400).json({ error: 'project_id and title required' });
   }
 
   try {
     const { data, error } = await from('dev_ai_docs')
       .upsert({
-        project_path: projPath,
+        project_id: projPath,
         doc_type: type,
         title,
         content,
         tags: tags || [],
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'project_path,doc_type,title'
+        onConflict: 'project_id,doc_type,title'
       })
       .select('id')
       .single();
 
     if (error) throw error;
 
-    logger.info('Documentation updated', { project_path: projPath, doc_type: type, title });
+    logger.info('Documentation updated', { project_id: projPath, doc_type: type, title });
     res.json({ success: true, id: data.id });
   } catch (err) {
     logger.error('Doc update failed', { error: err.message });
@@ -98,11 +98,11 @@ router.get('/docs', async (req, res) => {
 
   try {
     let query = from('dev_ai_docs')
-      .select('id, project_path, doc_type, title, content, tags, created_at, updated_at')
+      .select('id, project_id, doc_type, title, content, tags, created_at, updated_at')
       .order('updated_at', { ascending: false });
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     if (type) {

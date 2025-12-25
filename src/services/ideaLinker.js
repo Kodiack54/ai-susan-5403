@@ -116,7 +116,7 @@ async function notifyLinkage(idea, project) {
       type: 'idea_linked',
       title: 'Idea linked to ' + project.name,
       message: 'Found existing brainstorm "' + idea.title + '" - attached to new project.',
-      project_path: project.server_path || project.local_path,
+      project_id: project.server_path || project.local_path,
       is_read: false,
       created_at: new Date().toISOString()
     });

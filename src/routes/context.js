@@ -82,13 +82,13 @@ async function buildStartupContext(projectPath, userId) {
 
   // 1. Get last session for this project
   let sessionQuery = from('dev_ai_sessions')
-    .select('id, project_path, started_at, ended_at, summary')
+    .select('id, project_id, started_at, ended_at, summary')
     .eq('status', 'completed')
     .order('ended_at', { ascending: false })
     .limit(1);
 
   if (projectPath) {
-    sessionQuery = sessionQuery.eq('project_path', projectPath);
+    sessionQuery = sessionQuery.eq('project_id', projectPath);
   }
   if (userId) {
     sessionQuery = sessionQuery.eq('user_id', userId);
@@ -100,7 +100,7 @@ async function buildStartupContext(projectPath, userId) {
     const session = sessions[0];
     context.lastSession = {
       id: session.id,
-      projectPath: session.project_path,
+      projectPath: session.project_id,
       startedAt: session.started_at,
       endedAt: session.ended_at,
       summary: session.summary
@@ -122,7 +122,7 @@ async function buildStartupContext(projectPath, userId) {
     .limit(config.MAX_CONTEXT_ITEMS);
 
   if (projectPath) {
-    knowledgeQuery = knowledgeQuery.or(`project_path.eq.${projectPath},project_path.is.null`);
+    knowledgeQuery = knowledgeQuery.or(`project_id.eq.${projectPath},project_id.is.null`);
   }
 
   const { data: knowledge } = await knowledgeQuery;
@@ -135,7 +135,7 @@ async function buildStartupContext(projectPath, userId) {
     .limit(5);
 
   if (projectPath) {
-    decisionsQuery = decisionsQuery.eq('project_path', projectPath);
+    decisionsQuery = decisionsQuery.eq('project_id', projectPath);
   }
 
   const { data: decisions } = await decisionsQuery;
@@ -150,7 +150,7 @@ async function buildStartupContext(projectPath, userId) {
     .limit(10);
 
   if (projectPath) {
-    todosQuery = todosQuery.eq('project_path', projectPath);
+    todosQuery = todosQuery.eq('project_id', projectPath);
   }
 
   const { data: todos } = await todosQuery;
@@ -159,14 +159,14 @@ async function buildStartupContext(projectPath, userId) {
   // 5. Get project structure (ports, services)
   if (projectPath) {
     const { data: structure } = await from('dev_ai_structures')
-      .select('project_path, project_name, ports, services, databases')
-      .eq('project_path', projectPath)
+      .select('project_id, project_name, ports, services, databases')
+      .eq('project_id', projectPath)
       .single();
 
     if (structure) {
       context.projectInfo = {
         name: structure.project_name,
-        path: structure.project_path,
+        path: structure.project_id,
         services: structure.services || [],
         databases: structure.databases || []
       };
@@ -181,7 +181,7 @@ async function buildStartupContext(projectPath, userId) {
     .limit(20);
 
   if (projectPath) {
-    schemaQuery = schemaQuery.eq('project_path', projectPath);
+    schemaQuery = schemaQuery.eq('project_id', projectPath);
   }
 
   const { data: schemas } = await schemaQuery;
@@ -191,7 +191,7 @@ async function buildStartupContext(projectPath, userId) {
   if (projectPath) {
     const { data: fileStructure } = await from('dev_ai_file_structures')
       .select('directories, key_files, updated_at')
-      .eq('project_path', projectPath)
+      .eq('project_id', projectPath)
       .single();
 
     if (fileStructure) {

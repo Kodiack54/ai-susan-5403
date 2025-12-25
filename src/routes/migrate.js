@@ -29,7 +29,7 @@ function normalizeProjectPath(path) {
 
 /**
  * POST /api/migrate/reorganize-projects
- * Re-analyze all knowledge entries and assign correct project_path
+ * Re-analyze all knowledge entries and assign correct project_id
  */
 router.post('/reorganize-projects', async (req, res) => {
   const { dryRun = true } = req.body;
@@ -38,7 +38,7 @@ router.post('/reorganize-projects', async (req, res) => {
 
   try {
     const { data: entries, error } = await from('dev_ai_knowledge')
-      .select('id, title, summary, details, project_path, category')
+      .select('id, title, summary, details, project_id, category')
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -58,7 +58,7 @@ router.post('/reorganize-projects', async (req, res) => {
         .join(' ');
 
       // First normalize the existing path
-      const normalizedExisting = normalizeProjectPath(entry.project_path);
+      const normalizedExisting = normalizeProjectPath(entry.project_id);
       
       // Then detect from content
       const detection = detectProject(content, normalizedExisting || 'kodiack-dashboard-5500');
@@ -67,14 +67,14 @@ router.post('/reorganize-projects', async (req, res) => {
       results.byProject[finalProject] = (results.byProject[finalProject] || 0) + 1;
 
       // Check if anything changed (either normalization or detection)
-      const needsUpdate = finalProject !== entry.project_path;
-      const wasNormalized = normalizedExisting !== entry.project_path;
+      const needsUpdate = finalProject !== entry.project_id;
+      const wasNormalized = normalizedExisting !== entry.project_id;
 
       if (needsUpdate) {
         results.changes.push({
           id: entry.id,
           title: entry.title?.slice(0, 50),
-          from: entry.project_path,
+          from: entry.project_id,
           to: finalProject,
           normalized: wasNormalized,
           confidence: detection.confidence
@@ -82,7 +82,7 @@ router.post('/reorganize-projects', async (req, res) => {
 
         if (!dryRun) {
           await from('dev_ai_knowledge')
-            .update({ project_path: finalProject })
+            .update({ project_id: finalProject })
             .eq('id', entry.id);
         }
 
@@ -120,19 +120,19 @@ router.post('/reorganize-projects', async (req, res) => {
 router.get('/preview', async (req, res) => {
   try {
     const { data: entries, error } = await from('dev_ai_knowledge')
-      .select('id, title, summary, project_path')
+      .select('id, title, summary, project_id')
       .limit(20);
 
     if (error) throw error;
 
     const previews = entries.map(entry => {
       const content = [entry.title, entry.summary].filter(Boolean).join(' ');
-      const normalized = normalizeProjectPath(entry.project_path);
+      const normalized = normalizeProjectPath(entry.project_id);
       const detection = detectProject(content, normalized || 'kodiack-dashboard-5500');
       return {
         id: entry.id,
         title: entry.title?.slice(0, 50),
-        current: entry.project_path,
+        current: entry.project_id,
         normalized,
         detected: detection.project,
         confidence: detection.confidence

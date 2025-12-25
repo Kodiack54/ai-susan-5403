@@ -51,7 +51,7 @@ router.post('/', async (req, res) => {
       await from('dev_ai_activity')
         .insert({
           session_id: sessionId,
-          project_path: projectPath,
+          project_id: projectPath,
           keywords: quickData.keywords || [],
           file_mentions: quickData.fileMentions || [],
           todo_mentions: quickData.todoMentions || [],

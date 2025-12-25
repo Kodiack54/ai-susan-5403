@@ -28,7 +28,7 @@ const CATEGORY_TO_JOURNAL_TYPE = {
 async function addJournalEntry(projectPath, entryType, title, content, createdBy = 'susan') {
   try {
     const { data, error } = await from('dev_ai_journal').insert({
-      project_path: projectPath,
+      project_id: projectPath,
       entry_type: entryType,
       title,
       content,
@@ -98,7 +98,7 @@ async function forwardKnowledgeToJournal(projectPath, knowledge) {
 async function addConvention(projectPath, category, pattern, example = null, notes = null) {
   try {
     const { data, error } = await from('dev_ai_conventions').insert({
-      project_path: projectPath,
+      project_id: projectPath,
       category,
       pattern,
       example,
@@ -126,12 +126,12 @@ async function addFolderDescription(projectPath, folderPath, description) {
   try {
     const { data, error } = await from('dev_ai_folder_descriptions')
       .upsert({
-        project_path: projectPath,
+        project_id: projectPath,
         folder_path: folderPath,
         description,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'project_path,folder_path'
+        onConflict: 'project_id,folder_path'
       })
       .select()
       .single();

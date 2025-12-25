@@ -1,7 +1,8 @@
 /**
  * Extraction Sorter - Processes pending extractions from Chad/Jen
  * Sorts items into proper destination tables
- * NOW WITH CONTENT-BASED PRODUCT ROUTING
+ * FIXED: Uses projectDetector.project_id directly instead of broken path lookup
+ * FIXED: Added duplicate detection before inserting
  */
 
 const { from, query } = require('../lib/db');
@@ -52,15 +53,15 @@ const CATEGORY_TO_TABLE = {
 
 // Garbage patterns to filter
 const GARBAGE_PATTERNS = [
-  /^\|/,                    // Starts with pipe (table output)
-  /^\(\d+\)/,               // Starts with (8) etc
-  /^- MMO/,                 // MMO task references
-  /^be saved by/,           // Partial sentences
-  /^GET\s+\/api/,           // API routes
-  /\[.*m$/,                 // Ends with color code
-  /^'\w+_ai/,               // Table name references
-  /\\x1B/,                  // Escaped ANSI
-  /\\u001b/i,               // Unicode ANSI
+  /^\|/,
+  /^\(\d+\)/,
+  /^- MMO/,
+  /^be saved by/,
+  /^GET\s+\/api/,
+  /\[.*m$/,
+  /^'\w+_ai/,
+  /\\x1B/,
+  /\\u001b/i,
 ];
 
 function isGarbage(text) {
@@ -69,118 +70,90 @@ function isGarbage(text) {
   return GARBAGE_PATTERNS.some(p => p.test(text));
 }
 
-// ============ PRODUCT-BASED ROUTING ============
-
-// Product name to project lookup cache
-let productProjectCache = null;
-let productCacheExpiry = 0;
-const PRODUCT_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// ============ DUPLICATE DETECTION ============
 
 /**
- * Get routing info by looking up product names
- * Products like "NextBid Engine" match to project names
+ * Check if similar content already exists in a table
+ * Uses title matching (first 100 chars) to detect duplicates
  */
-async function getRoutingFromProducts(products) {
-  if (!products || products.length === 0) return null;
+async function isDuplicate(table, title, projectId) {
+  if (!title) return false;
 
-  // Build product-to-project cache if needed
-  const now = Date.now();
-  if (!productProjectCache || now >= productCacheExpiry) {
-    try {
-      const { data: projects } = await from('dev_projects')
-        .select('id, name, slug, client_id, platform_id');
+  const shortTitle = title.substring(0, 100);
 
-      productProjectCache = {};
-      for (const proj of (projects || [])) {
-        // Index by name (lowercase for matching)
-        productProjectCache[proj.name.toLowerCase()] = {
-          project_id: proj.id,
-          client_id: proj.client_id,
-          platform_id: proj.platform_id
-        };
-        // Also index by slug
-        if (proj.slug) {
-          productProjectCache[proj.slug.toLowerCase()] = {
-            project_id: proj.id,
-            client_id: proj.client_id,
-            platform_id: proj.platform_id
-          };
-        }
-      }
-      productCacheExpiry = now + PRODUCT_CACHE_TTL;
-      logger.debug('Product cache built', { entries: Object.keys(productProjectCache).length });
-    } catch (err) {
-      logger.error('Failed to build product cache', { error: err.message });
-      return null;
-    }
-  }
-
-  // Try to match any product
-  for (const product of products) {
-    const key = product.toLowerCase().trim();
-    if (productProjectCache[key]) {
-      logger.info('Routed by product', { product, project_id: productProjectCache[key].project_id });
-      return productProjectCache[key];
-    }
-
-    // Also try partial match (e.g., "NextBid" matches "NextBid Engine")
-    for (const [name, info] of Object.entries(productProjectCache)) {
-      if (name.includes(key) || key.includes(name)) {
-        logger.info('Routed by partial product match', { product, matchedName: name });
-        return info;
-      }
-    }
-  }
-
-  return null;
-}
-
-// Helper to get routing info from project path
-async function getRoutingFromPath(projectPath) {
-  if (!projectPath) return {};
   try {
-    const { data: pathInfo } = await from('dev_project_paths')
-      .select('project_id')
-      .eq('path', projectPath)
-      .limit(1);
-    if (pathInfo?.[0]?.project_id) {
-      const { data: proj } = await from('dev_projects')
-        .select('client_id, platform_id, id')
-        .eq('id', pathInfo[0].project_id)
-        .single();
-      if (proj) {
-        return { client_id: proj.client_id, platform_id: proj.platform_id, project_id: proj.id };
-      }
+    // Check for exact title match in same project
+    let q = from(table).select('id').ilike('title', shortTitle + '%').limit(1);
+
+    // If we have project_id, scope to that project
+    if (projectId) {
+      q = q.eq('project_id', projectId);
     }
-  } catch (e) {
-    logger.debug('Error getting routing from path', { error: e.message });
+
+    const { data } = await q;
+
+    if (data && data.length > 0) {
+      logger.info('Duplicate detected, skipping', { table, title: shortTitle.substring(0, 50) });
+      return true;
+    }
+    return false;
+  } catch (err) {
+    // If check fails, allow insert (better to have dupe than lose data)
+    return false;
   }
-  return {};
 }
 
 /**
- * Get routing - PRODUCTS FIRST, then fall back to path
- * This is the key function that enables content-based routing
+ * Check for duplicate in tables that use 'name' instead of 'title'
  */
-async function getRouting(projectPath, metadata) {
-  // Try products first (from metadata)
-  if (metadata) {
-    let meta = metadata;
-    if (typeof meta === 'string') {
-      try { meta = JSON.parse(meta); } catch { meta = {}; }
-    }
-    if (meta.products && Array.isArray(meta.products) && meta.products.length > 0) {
-      const productRouting = await getRoutingFromProducts(meta.products);
-      if (productRouting && productRouting.project_id) {
-        logger.info('Using product-based routing', { products: meta.products, routing: productRouting });
-        return productRouting;
-      }
-    }
-  }
+async function isDuplicateByName(table, name, projectId) {
+  if (!name) return false;
 
-  // Fall back to path-based routing
-  return await getRoutingFromPath(projectPath);
+  const shortName = name.substring(0, 100);
+
+  try {
+    let q = from(table).select('id').ilike('name', shortName + '%').limit(1);
+
+    if (projectId) {
+      q = q.eq('project_id', projectId);
+    }
+
+    const { data } = await q;
+    return data && data.length > 0;
+  } catch {
+    return false;
+  }
 }
+
+/**
+ * Check for duplicate in tables that use 'content' for matching
+ */
+async function isDuplicateByContent(table, content, projectId) {
+  if (!content) return false;
+
+  // Use first 150 chars of content for matching
+  const contentStart = content.substring(0, 150);
+
+  try {
+    let q = from(table).select('id').ilike('content', contentStart + '%').limit(1);
+
+    if (projectId) {
+      q = q.eq('project_id', projectId);
+    }
+
+    const { data } = await q;
+
+    if (data && data.length > 0) {
+      logger.info('Duplicate content detected, skipping', { table });
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+// ============ MAIN PROCESSING ============
 
 async function processPendingExtractions() {
   try {
@@ -199,7 +172,7 @@ async function processPendingExtractions() {
       return { processed: 0, errors: 0 };
     }
 
-    logger.info(`[Sorter] Processing ${pending.length} pending extractions`);
+    logger.info('[Sorter] Processing ' + pending.length + ' pending extractions');
 
     let processed = 0;
     let errors = 0;
@@ -221,6 +194,8 @@ async function processPendingExtractions() {
         const result = await sortExtraction(extraction);
         if (result.success) {
           processed++;
+        } else if (result.duplicate) {
+          skipped++;
         } else {
           errors++;
         }
@@ -230,7 +205,7 @@ async function processPendingExtractions() {
       }
     }
 
-    logger.info(`[Sorter] Processed ${processed}, skipped ${skipped}, errors ${errors}`);
+    logger.info('[Sorter] Processed ' + processed + ', skipped ' + skipped + ', errors ' + errors);
     return { processed, errors, skipped };
   } catch (err) {
     logger.error('Error in processPendingExtractions', { error: err.message });
@@ -239,59 +214,69 @@ async function processPendingExtractions() {
 }
 
 async function sortExtraction(extraction) {
-  const { id, category, bucket, content, project_path, priority, metadata, session_id } = extraction;
+  const { id, category, bucket, content, project_id, priority, metadata, session_id } = extraction;
 
-  // NEW FORMAT: Use bucket field if present
+  // FIXED: Detect project from CONTENT first - this gives us project_id directly!
+  // This works even when project_id is a Windows path that wont match dev_project_ids
+  let detected = null;
+  if (content) {
+    detected = await projectDetector.detectProject(content);
+    logger.info('Project detected from content', {
+      project_name: detected?.project_name,
+      project_id: detected?.project_id,
+      confidence: detected?.confidence,
+      reason: detected?.reason
+    });
+  }
+
+  // Use detected server_path, or fall back to extractions project_id
+  const finalProjectPath = detected?.server_path || project_id;
+
+  // Determine target table
   let targetTable;
   let usedBucket = bucket;
 
   if (bucket && BUCKET_TO_TABLE[bucket]) {
     targetTable = BUCKET_TO_TABLE[bucket];
-    logger.debug('Using bucket format', { bucket, targetTable });
   } else {
-    // LEGACY FORMAT: Use category field
     targetTable = CATEGORY_TO_TABLE[category] || 'dev_ai_knowledge';
-    logger.debug('Using legacy category format', { category, targetTable });
-  }
-
-  let finalProjectPath = project_path;
-  if (!finalProjectPath && content) {
-    const detected = await projectDetector.detectProject(content);
-    if (detected) {
-      finalProjectPath = detected.server_path;
-    }
   }
 
   try {
-    // Route to appropriate insert function based on target table
-    // NOW PASSING metadata for product-based routing
+    // FIXED: Pass detected project info (includes project_id!) to insert functions
+    let inserted = false;
+
     if (targetTable === 'dev_ai_todos') {
-      await insertTodo(extraction, finalProjectPath, metadata);
+      inserted = await insertTodo(extraction, finalProjectPath, detected);
     } else if (targetTable === 'dev_ai_bugs') {
-      await insertBug(extraction, finalProjectPath, usedBucket, metadata);
+      inserted = await insertBug(extraction, finalProjectPath, usedBucket, detected);
     } else if (targetTable === 'dev_ai_knowledge') {
-      await insertKnowledge(extraction, finalProjectPath, usedBucket, metadata);
+      inserted = await insertKnowledge(extraction, finalProjectPath, usedBucket, detected);
     } else if (targetTable === 'dev_ai_decisions') {
-      await insertDecision(extraction, finalProjectPath, metadata);
+      inserted = await insertDecision(extraction, finalProjectPath, detected);
     } else if (targetTable === 'dev_ai_lessons') {
-      await insertLesson(extraction, finalProjectPath, metadata);
+      inserted = await insertLesson(extraction, finalProjectPath, detected);
     } else if (targetTable === 'dev_ai_journal') {
-      await insertJournal(extraction, finalProjectPath, usedBucket, metadata);
+      inserted = await insertJournal(extraction, finalProjectPath, usedBucket, detected);
     } else if (targetTable === 'dev_ai_docs') {
-      await insertDoc(extraction, finalProjectPath, usedBucket, metadata);
+      inserted = await insertDoc(extraction, finalProjectPath, usedBucket, detected);
     } else if (targetTable === 'dev_ai_conventions') {
-      await insertConvention(extraction, finalProjectPath, usedBucket, metadata);
+      inserted = await insertConvention(extraction, finalProjectPath, usedBucket, detected);
     } else if (targetTable === 'dev_ai_snippets') {
-      await insertSnippet(extraction, finalProjectPath, metadata);
+      inserted = await insertSnippet(extraction, finalProjectPath, detected);
     } else {
-      await insertKnowledge(extraction, finalProjectPath, usedBucket, metadata);
+      inserted = await insertKnowledge(extraction, finalProjectPath, usedBucket, detected);
     }
 
+    // Mark as processed (or skipped if duplicate)
     await from('dev_ai_smart_extractions')
-      .update({ status: 'processed', processed_at: new Date().toISOString() })
+      .update({
+        status: inserted ? 'processed' : 'duplicate',
+        processed_at: new Date().toISOString()
+      })
       .eq('id', id);
 
-    return { success: true };
+    return { success: inserted, duplicate: !inserted };
   } catch (err) {
     logger.error('Error sorting extraction', { id, bucket, category, error: err.message });
 
@@ -303,137 +288,168 @@ async function sortExtraction(extraction) {
   }
 }
 
-// ============ INSERT FUNCTIONS (now with product routing) ============
+// ============ INSERT FUNCTIONS (with duplicate checking) ============
 
-async function insertTodo(extraction, projectPath, metadata) {
+async function insertTodo(extraction, projectPath, detected) {
   const { content, priority, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
+
+  // Check for duplicate
+  if (await isDuplicate('dev_ai_todos', title, detected?.project_id)) {
+    return false;
+  }
 
   await from('dev_ai_todos').insert({
-    project_path: projectPath || '/var/www/Kodiack_Studio',
+    project_id: projectPath || '/var/www/Studio',
     title: title,
     description: content,
     priority: mapPriority(priority),
     status: 'pending',
     source_session_id: session_id,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertBug(extraction, projectPath, bucket, metadata) {
+async function insertBug(extraction, projectPath, bucket, detected) {
   const { content, priority, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
-
-  // Determine status based on bucket
   const status = bucket === 'Bugs Fixed' ? 'fixed' : 'open';
 
+  // Check for duplicate
+  if (await isDuplicate('dev_ai_bugs', title, detected?.project_id)) {
+    return false;
+  }
+
   await from('dev_ai_bugs').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     title: title,
     description: content,
     severity: mapPriority(priority),
     status: status,
     source_session_id: session_id,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertKnowledge(extraction, projectPath, bucket, metadata) {
+async function insertKnowledge(extraction, projectPath, bucket, detected) {
   const { content, category, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
-
-  // Use bucket as subcategory if available
   const knowledgeCategory = bucket || category || 'general';
 
+  // Check for duplicate
+  if (await isDuplicate('dev_ai_knowledge', title, detected?.project_id)) {
+    return false;
+  }
+
   await from('dev_ai_knowledge').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     title: title,
     content: content,
     category: knowledgeCategory,
     source_session_id: session_id,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertDecision(extraction, projectPath, metadata) {
+async function insertDecision(extraction, projectPath, detected) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
+
+  // Check for duplicate
+  if (await isDuplicate('dev_ai_decisions', title, detected?.project_id)) {
+    return false;
+  }
 
   await from('dev_ai_decisions').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     title: title,
     description: content,
     status: 'decided',
     session_id: session_id,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertLesson(extraction, projectPath, metadata) {
+async function insertLesson(extraction, projectPath, detected) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
 
-  // Lessons are APPEND-ONLY - never override
+  // Check for duplicate
+  if (await isDuplicate('dev_ai_lessons', title, detected?.project_id)) {
+    return false;
+  }
+
   await from('dev_ai_lessons').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     title: title,
     description: content,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertJournal(extraction, projectPath, bucket, metadata) {
+async function insertJournal(extraction, projectPath, bucket, detected) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
-
-  // Journal entries are APPEND-ONLY - never override
   const entryType = bucket === 'Work Log' ? 'work_log' : 'journal';
 
+  // Check for duplicate by content (journals may have similar titles)
+  if (await isDuplicateByContent('dev_ai_journal', content, detected?.project_id)) {
+    return false;
+  }
+
   await from('dev_ai_journal').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     title: title,
     content: content,
     entry_type: entryType,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertDoc(extraction, projectPath, bucket, metadata) {
+async function insertDoc(extraction, projectPath, bucket, detected) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
-
   const docTypeMap = { 'System Breakdown': 'breakdown', 'How-To Guide': 'howto', 'Schematic': 'schematic', 'Reference': 'reference' };
   const docType = docTypeMap[bucket] || 'reference';
 
+  // Check for duplicate
+  if (await isDuplicate('dev_ai_docs', title, detected?.project_id)) {
+    return false;
+  }
+
   await from('dev_ai_docs').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     title: title,
     content: content,
     doc_type: docType,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertConvention(extraction, projectPath, bucket, metadata) {
+async function insertConvention(extraction, projectPath, bucket, detected) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
-
-  // Map bucket to convention type (must match UI CATEGORIES ids)
   const conventionTypeMap = {
     'Naming Conventions': 'naming',
     'File Structure': 'structure',
@@ -444,29 +460,42 @@ async function insertConvention(extraction, projectPath, bucket, metadata) {
   };
   const conventionType = conventionTypeMap[bucket] || 'naming';
 
+  // Check for duplicate by name
+  if (await isDuplicateByName('dev_ai_conventions', title, detected?.project_id)) {
+    return false;
+  }
+
   await from('dev_ai_conventions').insert({
-    project_path: projectPath,
+    project_id: projectPath,
     name: title,
     description: content,
     convention_type: conventionType,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
-async function insertSnippet(extraction, projectPath, metadata) {
+async function insertSnippet(extraction, projectPath, detected) {
   const { content, session_id } = extraction;
   const title = content.substring(0, 200).split('\n')[0];
-  const routing = await getRouting(projectPath, metadata);
+
+  // Check for duplicate by content
+  if (await isDuplicateByContent('dev_ai_snippets', content, detected?.project_id)) {
+    return false;
+  }
 
   await from('dev_ai_snippets').insert({
     snippet_type: 'extracted',
-    project_path: projectPath,
+    project_id: projectPath,
     content: content,
     session_id: session_id,
-    client_id: routing.client_id || null,
-    project_id: routing.project_id || null
+    client_id: detected?.client_id || null,
+    project_id: detected?.project_id || null
   });
+
+  return true;
 }
 
 // ============ HELPERS ============
@@ -502,8 +531,5 @@ module.exports = {
   startSorter,
   stopSorter,
   BUCKET_TO_TABLE,
-  CATEGORY_TO_TABLE,
-  getRouting,
-  getRoutingFromProducts,
-  getRoutingFromPath
+  CATEGORY_TO_TABLE
 };

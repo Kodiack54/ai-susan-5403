@@ -10,7 +10,7 @@ const { Logger } = require('../lib/logger');
 
 const logger = new Logger('Susan:ConceptDetector');
 
-const BASE_PATH = '/var/www/NextBid_Dev';
+const BASE_PATH = '/var/www/Studio';
 
 // Patterns that suggest a new concept is being discussed
 const NEW_CONCEPT_PATTERNS = [

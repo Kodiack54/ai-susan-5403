@@ -16,14 +16,14 @@ const logger = new Logger('Susan:Todos');
 router.post('/todo', async (req, res) => {
   // Accept both camelCase and snake_case for flexibility
   const {
-    projectPath, project_path,
+    projectPath, project_id,
     title, description, priority,
     category, status,
     discoveredIn, discovered_in,
     tags
   } = req.body;
 
-  const projPath = project_path || projectPath;
+  const projPath = project_id || projectPath;
 
   if (!title) {
     return res.status(400).json({ error: 'Title required' });
@@ -32,7 +32,7 @@ router.post('/todo', async (req, res) => {
   try {
     const { data, error } = await from('dev_ai_todos')
       .insert({
-        project_path: projPath,
+        project_id: projPath,
         title,
         description,
         priority: priority || 'medium',
@@ -46,7 +46,7 @@ router.post('/todo', async (req, res) => {
 
     if (error) throw error;
 
-    logger.info('Todo added', { id: data.id, title, project_path: projPath });
+    logger.info('Todo added', { id: data.id, title, project_id: projPath });
     res.json({ success: true, id: data.id });
   } catch (err) {
     logger.error('Todo add failed', { error: err.message });
@@ -62,12 +62,12 @@ router.get('/todos', async (req, res) => {
 
   try {
     let query = from('dev_ai_todos')
-      .select('id, project_path, title, description, priority, category, status, discovered_in, tags, created_at, updated_at')
+      .select('id, project_id, title, description, priority, category, status, discovered_in, tags, created_at, updated_at')
       .order('created_at', { ascending: false })
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     if (status) {
@@ -152,7 +152,7 @@ router.get('/todos/stats', async (req, res) => {
       .select('status, priority, category');
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     const { data, error } = await query;

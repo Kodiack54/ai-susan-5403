@@ -23,14 +23,14 @@ router.post('/structure', async (req, res) => {
   try {
     const { data, error } = await from('dev_ai_structures')
       .upsert({
-        project_path: projectPath,
+        project_id: projectPath,
         structure: structure || {},
         description,
         ports: ports || [],
         services: services || [],
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'project_path'
+        onConflict: 'project_id'
       })
       .select('id')
       .single();
@@ -58,7 +58,7 @@ router.get('/structure', async (req, res) => {
   try {
     const { data, error } = await from('dev_ai_structures')
       .select('*')
-      .eq('project_path', project)
+      .eq('project_id', project)
       .single();
 
     if (error && error.code !== 'PGRST116') throw error;
@@ -78,7 +78,7 @@ router.get('/structure', async (req, res) => {
 router.get('/structures', async (req, res) => {
   try {
     const { data, error } = await from('dev_ai_structures')
-      .select('project_path, description, ports, services, updated_at')
+      .select('project_id, description, ports, services, updated_at')
       .order('updated_at', { ascending: false });
 
     if (error) throw error;
@@ -102,7 +102,7 @@ router.post('/structure/port', async (req, res) => {
     // Get existing structure
     const { data: existing } = await from('dev_ai_structures')
       .select('ports')
-      .eq('project_path', projectPath)
+      .eq('project_id', projectPath)
       .single();
 
     const ports = existing?.ports || [];
@@ -118,11 +118,11 @@ router.post('/structure/port', async (req, res) => {
     // Upsert
     const { error } = await from('dev_ai_structures')
       .upsert({
-        project_path: projectPath,
+        project_id: projectPath,
         ports,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'project_path'
+        onConflict: 'project_id'
       });
 
     if (error) throw error;
@@ -149,7 +149,7 @@ router.post('/structure/service', async (req, res) => {
     // Get existing structure
     const { data: existing } = await from('dev_ai_structures')
       .select('services')
-      .eq('project_path', projectPath)
+      .eq('project_id', projectPath)
       .single();
 
     const services = existing?.services || [];
@@ -167,11 +167,11 @@ router.post('/structure/service', async (req, res) => {
     // Upsert
     const { error } = await from('dev_ai_structures')
       .upsert({
-        project_path: projectPath,
+        project_id: projectPath,
         services,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'project_path'
+        onConflict: 'project_id'
       });
 
     if (error) throw error;
@@ -190,7 +190,7 @@ router.post('/structure/service', async (req, res) => {
 router.get('/ports', async (req, res) => {
   try {
     const { data, error } = await from('dev_ai_structures')
-      .select('project_path, ports');
+      .select('project_id, ports');
 
     if (error) throw error;
 
@@ -200,7 +200,7 @@ router.get('/ports', async (req, res) => {
       (project.ports || []).forEach(port => {
         allPorts.push({
           ...port,
-          projectPath: project.project_path
+          projectPath: project.project_id
         });
       });
     });
@@ -232,7 +232,7 @@ router.get('/structures', async (req, res) => {
       .order('path', { ascending: true });
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     const { data, error } = await query;
@@ -257,22 +257,22 @@ router.get('/structures', async (req, res) => {
  */
 router.post('/structure', async (req, res) => {
   const {
-    project_path, projectPath,
+    project_id, projectPath,
     path, name, type,
     status, purpose, notes,
     parent_path
   } = req.body;
 
-  const projPath = project_path || projectPath;
+  const projPath = project_id || projectPath;
 
   if (!projPath || !path || !name) {
-    return res.status(400).json({ error: 'project_path, path, and name required' });
+    return res.status(400).json({ error: 'project_id, path, and name required' });
   }
 
   try {
     const { data, error } = await from('dev_ai_structure_items')
       .insert({
-        project_path: projPath,
+        project_id: projPath,
         path,
         name,
         type: type || 'file',

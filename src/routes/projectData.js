@@ -29,28 +29,28 @@ router.get('/project-data', async (req, res) => {
       // Todos for this project
       from('dev_ai_todos')
         .select('id, title, description, priority, status, created_at, completed_at')
-        .eq('project_path', projectPath)
+        .eq('project_id', projectPath)
         .order('created_at', { ascending: false })
         .limit(50),
 
       // Knowledge for this project
       from('dev_ai_knowledge')
         .select('id, category, title, summary, importance, created_at')
-        .eq('project_path', projectPath)
+        .eq('project_id', projectPath)
         .order('importance', { ascending: false })
         .limit(50),
 
       // Decisions for this project
       from('dev_ai_decisions')
         .select('id, title, decision, rationale, created_at')
-        .eq('project_path', projectPath)
+        .eq('project_id', projectPath)
         .order('created_at', { ascending: false })
         .limit(50),
 
       // Code changes for this project
       from('dev_ai_code_changes')
         .select('id, file_path, action, summary, created_at')
-        .eq('project_path', projectPath)
+        .eq('project_id', projectPath)
         .order('created_at', { ascending: false })
         .limit(100),
 

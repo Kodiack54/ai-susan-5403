@@ -57,7 +57,7 @@ async function buildChatContext(projectPath) {
     .limit(10);
 
   if (projectPath) {
-    knowledgeQuery = knowledgeQuery.or(`project_path.eq.${projectPath},project_path.is.null`);
+    knowledgeQuery = knowledgeQuery.or(`project_id.eq.${projectPath},project_id.is.null`);
   }
 
   const { data: knowledge } = await knowledgeQuery;
@@ -69,7 +69,7 @@ async function buildChatContext(projectPath) {
     .limit(5);
 
   if (projectPath) {
-    decisionsQuery = decisionsQuery.eq('project_path', projectPath);
+    decisionsQuery = decisionsQuery.eq('project_id', projectPath);
   }
 
   const { data: decisions } = await decisionsQuery;
@@ -81,7 +81,7 @@ async function buildChatContext(projectPath) {
 
   // Get todos
   const { data: todos } = await from('dev_ai_todos')
-    .select('title, description, priority, status, project_path')
+    .select('title, description, priority, status, project_id')
     .in('status', ['pending', 'in_progress'])
     .order('priority', { ascending: true })
     .limit(10);
@@ -94,7 +94,7 @@ async function buildChatContext(projectPath) {
 
   // Get recent sessions
   const { data: sessions } = await from('dev_ai_sessions')
-    .select('project_path, summary, started_at, status')
+    .select('project_id, summary, started_at, status')
     .order('started_at', { ascending: false })
     .limit(5);
 
@@ -137,7 +137,7 @@ async function buildChatContext(projectPath) {
 
   const sessionContext = sessions?.length > 0
     ? `Recent Claude sessions:\n${sessions.map(s =>
-        `- ${s.project_path}: ${s.summary || 'No summary'} (${s.status})`
+        `- ${s.project_id}: ${s.summary || 'No summary'} (${s.status})`
       ).join('\n')}`
     : '';
 

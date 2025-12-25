@@ -29,7 +29,7 @@ router.post('/decision', async (req, res) => {
         decision,
         alternatives: alternatives || [],
         rationale,
-        project_path: projectPath,
+        project_id: projectPath,
         tags: tags || []
       })
       .select('id')
@@ -53,12 +53,12 @@ router.get('/decisions', async (req, res) => {
 
   try {
     let query = from('dev_ai_decisions')
-      .select('id, title, context, decision, alternatives, rationale, project_path, tags, created_at')
+      .select('id, title, context, decision, alternatives, rationale, project_id, tags, created_at')
       .order('created_at', { ascending: false })
       .limit(parseInt(limit));
 
     if (project) {
-      query = query.eq('project_path', project);
+      query = query.eq('project_id', project);
     }
 
     const { data, error } = await query;
